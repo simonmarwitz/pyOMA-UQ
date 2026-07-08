@@ -1,6 +1,4 @@
-# import sys
-# sys.path.append("/usr/wrk/people9/sima9999/code/")
-# sys.path.append("/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/code/")
+import os
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,8 +6,7 @@ import pandas as pd
 import scipy.stats
 import scipy.stats.qmc
 import sys
-sys.path.append('/home/sima9999/git/PolyUQ/')
-from polymorphic_uncertainty import *
+from polyuq import *
 import logging
 
 logger = logging.getLogger(__name__)
@@ -112,15 +109,19 @@ def main():
     ret_name = 'frf'
     ret_ind = {'frequencies':105, 'space':8}
 
+    import tempfile
+    from polyuq.data_manager import DataManager
+    result_dir = os.environ.get('UQ_MODAL_RESULT_DIR', os.path.join(os.getcwd(), 'polyuq_results', 'uq_modal'))
+
     if False:
         poly_uq = PolyUQ(vars_ale, vars_epi, dim_ex=dim_ex)
-        poly_uq.sample_qmc(N_mcs_ale, N_mcs_epi, check_sample_sizes=False)
-        poly_uq.save_state('/usr/scratch4/sima9999/work/modal_uq/uq_modal/polyuq_samp.npz')
+        poly_uq.sample_qmc(N_mcs_ale, N_mcs_epi, check_discr=False)
+        poly_uq.save_state(os.path.join(result_dir, 'polyuq_samp.npz'))
 
         if use_dm:
             dm_grid, _, _ = poly_uq.to_data_manager('example',
-                                                    working_dir='/dev/shm/womo1998/',
-                                                    result_dir='/usr/scratch4/sima9999/work/modal_uq/uq_modal',
+                                                    working_dir=tempfile.gettempdir(),
+                                                    result_dir=result_dir,
                                                     overwrite=True)
             dm_grid.evaluate_samples(mapping_function, arg_vars,
                                      ret_names={'omegans':('modes',), 'zetas':('modes',), 'frf':('frequencies', 'space',)},
@@ -130,20 +131,20 @@ def main():
         else:
             poly_uq.propagate(mapping_single, arg_vars)
 
-        poly_uq.save_state('/usr/scratch4/sima9999/work/modal_uq/uq_modal/polyuq_prop.npz')
+        poly_uq.save_state(os.path.join(result_dir, 'polyuq_prop.npz'))
     else:
         poly_uq = PolyUQ(vars_ale, vars_epi, dim_ex=dim_ex)
-        poly_uq.load_state('/usr/scratch4/sima9999/work/modal_uq/uq_modal/polyuq_prop.npz')
+        poly_uq.load_state(os.path.join(result_dir, 'polyuq_prop.npz'))
 
         if use_dm:
-            dm_grid = DataManager.from_existing('example.nc', working_dir='/dev/shm/womo1998/',
-                                                           result_dir='/usr/scratch4/sima9999/work/modal_uq/uq_modal',)
+            dm_grid = DataManager.from_existing('example.nc', working_dir=tempfile.gettempdir(),
+                                                           result_dir=result_dir)
             poly_uq.from_data_manager(dm_grid, ret_name, ret_ind)
 
     # print(poly_uq.out_samp)
     poly_uq.estimate_imp(interpolate=True, opt_meth='Powell')
 
-    poly_uq.save_state(f'/usr/scratch4/sima9999/work/modal_uq/uq_modal/{ret_name}-{ret_ind}/polyuq_imp.npz')
+    poly_uq.save_state(os.path.join(result_dir, f'{ret_name}-{ret_ind}', 'polyuq_imp.npz'))
 
     def stat_fun(a, weight, i_stat):
         return np.average(a, weights=weight)
@@ -153,7 +154,7 @@ def main():
     # focals_Pf, hyc_mass = poly_uq.estimate_inc(intervals, stat_fun, n_stat)
     focals_Pf, hyc_mass = poly_uq.optimize_inc(stat_fun, n_stat)
 
-    poly_uq.save_state(f'/usr/scratch4/sima9999/work/modal_uq/uq_modal/{ret_name}-{ret_ind}/polyuq_avg_inc.npz')
+    poly_uq.save_state(os.path.join(result_dir, f'{ret_name}-{ret_ind}', 'polyuq_avg_inc.npz'))
 
     print(focals_Pf, hyc_mass)
 

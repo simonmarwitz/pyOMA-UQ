@@ -1,7 +1,7 @@
 '''
 Created on Apr 26, 2021
 
-@author: womo1998
+@author: Simon Marwitz
 '''
 import logging
 import sys

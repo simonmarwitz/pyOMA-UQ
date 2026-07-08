@@ -1,7 +1,6 @@
 import sys
-sys.path.append('/home/sima9999/git/PolyUQ/')
 
-from data_manager import DataManager, HiddenPrints
+from polyuq.data_manager import DataManager, HiddenPrints
 from model.mechanical import Mechanical, MechanicalDummy
 from model.acquisition import Acquire
 
@@ -320,7 +319,7 @@ def uq_acqui(step, working_dir, result_dir):
 
                                       )
         # ['d6075c96cfb7', 'b5c3a0c90604', 'e2cc12128797', '6251717cb53e','d60c3915887e', '79dc28c2f054', '9e6fd66b51c5']
-        os.system('bkill 0 -q BatchXL -u sima9999')
+        os.system(f'bkill 0 -q BatchXL -u {os.environ.get("USER", "")}')
         return
     if step == 3:
         import matplotlib
@@ -339,21 +338,21 @@ def uq_acqui(step, working_dir, result_dir):
                 # scales = ['linear','log','log','linear','linear']
                 fig = data_manager.post_process_samples(names=names, db='processed', labels=labels, figsize=(5.92, 5.92))  # , scales=scales)
                 # fig.subplots_adjust(bottom=0.07, left=0.1)
-                fig.savefig(f'/vegas/users/staff/womo1998/Projects/2019_Promotion/2021_WeihnachstfeierVolkmar/figures/{title}_quant.pdf', dpi=300)
+                fig.savefig(f'figures/{title}_quant.pdf', dpi=300)
 
             if True:
                 names = ['snr_db', 'numtaps_fact', 'nyq_rat', 'sim_steps', 'dec_rate', 'this_snr_alias', 'this_snr_db_out']  # numtaps_fact = numtaps/dec_fact, nyq_rat=fs/cutoff, <- constant
                 labels = ['SNR\\textsubscript{dB}', '$\\sfrac{M}{d}$', '$\\sfrac{f_c}{f_s}$', '$N$', '$d$', 'SNR\\textsubscript{dB, alias}', 'SNR\\textsubscript{dB, tot}']
                 fig = data_manager.post_process_samples(names=names, db='processed', labels=labels, figsize=(5.92, 5.92))
                 fig.subplots_adjust(bottom=0.07, left=0.07)
-                fig.savefig(f'/vegas/users/staff/womo1998/Projects/2019_Promotion/2021_WeihnachstfeierVolkmar/figures/{title}_samp.pdf', dpi=300)
+                fig.savefig(f'figures/{title}_samp.pdf', dpi=300)
 
             if True:
                 names = ['this_snr_db_out', 'freq_diff', 'damp_diff', 'modal_assurance', 'unp_id', 'unp_num']
                 labels = ['SNR\\textsubscript{dB, tot}', '$\\Delta_f$', '$\\Delta_{\\zeta}$', 'MAC', '$m_\\text{additional}$', '$m_\\text{missing}$']
                 fig = data_manager.post_process_samples(names=names, db='processed', labels=labels, figsize=(5.92, 5.92))
                 fig.subplots_adjust(left=0.07)
-                fig.savefig(f'/vegas/users/staff/womo1998/Projects/2019_Promotion/2021_WeihnachstfeierVolkmar/figures/{title}_noise.pdf', dpi=300)
+                fig.savefig(f'figures/{title}_noise.pdf', dpi=300)
 
             # influences of sensors
             if True:
@@ -374,7 +373,7 @@ def uq_acqui(step, working_dir, result_dir):
                     axis.set_ticks([0, 1])
                     axis.set_ticklabels(['lump', 'dist'])
                 fig.subplots_adjust(left=0.08)
-                fig.savefig(f'/vegas/users/staff/womo1998/Projects/2019_Promotion/2021_WeihnachstfeierVolkmar/figures/{title}_sensors.pdf', dpi=300)
+                fig.savefig(f'figures/{title}_sensors.pdf', dpi=300)
 
             # influences of signal processing and system identification
             if True:
@@ -394,7 +393,7 @@ def uq_acqui(step, working_dir, result_dir):
                     axis.set_ticks([0, 1])
                     axis.set_ticklabels(['b.-t.', 'welch'])
                 fig.subplots_adjust(left=0.08)
-                fig.savefig(f'/vegas/users/staff/womo1998/Projects/2019_Promotion/2021_WeihnachstfeierVolkmar/figures/{title}_sigid.pdf', dpi=300)
+                fig.savefig(f'figures/{title}_sigid.pdf', dpi=300)
 
             # influences of structural parameters
             if True:
@@ -402,7 +401,7 @@ def uq_acqui(step, working_dir, result_dir):
                 labels = [ '$\\zeta$', '$\\delta_f$', '$n_\\text{modes}$', '$\\Delta_f$', '$\\Delta_{\\zeta}$', 'MAC', '$m_\\text{additional}$', '$m_\\text{missing}$']
                 fig = data_manager.post_process_samples(names=names, db='processed', labels=labels, figsize=(5.92, 5.92))
                 fig.subplots_adjust(left=0.07)
-                fig.savefig(f'/vegas/users/staff/womo1998/Projects/2019_Promotion/2021_WeihnachstfeierVolkmar/figures/{title}_struct.pdf', dpi=300)
+                fig.savefig(f'figures/{title}_struct.pdf', dpi=300)
 
             if False:
                 names = None
@@ -422,13 +421,11 @@ def main():
     global title
     title = 'uq_acqui2'
 
-    working_dir = os.path.join('/dev/shm', str(os.getuid()), 'work')
+    import tempfile
+    working_dir = os.path.join(tempfile.gettempdir(), str(os.getuid()), 'work')
 
-    if os.getlogin() == 'womo1998':
-        base = '/vegas/scratch/womo1998/'
-    else:
-        base = '/usr/scratch4/sima9999/work/'
-    result_dir = os.path.join(base, f'modal_uq/{title}/')
+    base = os.environ.get('UQ_ACQUI_RESULT_DIR', os.path.join(os.getcwd(), 'polyuq_results'))
+    result_dir = os.path.join(base, f'{title}/')
 
     if False:
         jid = 'test123'

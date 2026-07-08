@@ -1,8 +1,5 @@
 import sys
 import os
-sys.path.append("/home/sima9999/code/")
-sys.path.append("/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/code/")
-sys.path.append('/home/sima9999/git/PolyUQ/')
 
 import logging
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -28,16 +25,17 @@ from pyOMA.core.PLSCF import PLSCF
 from pyOMA.core.StabilDiagram import StabilCalc
 global ansys
 
-from polymorphic_uncertainty import MassFunction, RandomVariable, PolyUQ
+from polyuq import MassFunction, RandomVariable, PolyUQ
 
 
 def cluster_modes(_id, meth, N_max, N_start):
-    from data_manager import DataManager
+    from polyuq.data_manager import DataManager
     from sklearn.cluster import OPTICS, cluster_optics_dbscan
 
     import pickle
+    import tempfile
 
-    result_dir = Path('/scratch/sima9999/modal_uq/uq_oma_a/')
+    result_dir = Path(os.environ.get('UQ_OMA_RESULT_DIR', '.'))
 
     logfile = open(result_dir / (_id + '.log'), 'wt')
     print(f'Starting clustering in {meth} with at most {N_max} samples', file=logfile)
@@ -46,7 +44,7 @@ def cluster_modes(_id, meth, N_max, N_start):
     if dm_grid is None:
         dm_grid = DataManager.from_existing('dm_oma_a.nc',
                                             result_dir=result_dir / 'samples',
-                                            working_dir='/dev/shm/womo1998/')
+                                            working_dir=tempfile.gettempdir())
 
     with dm_grid.get_database('out', False) as out_ds:
         out_ds_keep = out_ds
@@ -83,7 +81,7 @@ def cluster_modes(_id, meth, N_max, N_start):
                    # max_eps=0.0015,# the manually defined cluster radius
                    # max_eps=0.0004, # works as well
                    max_eps=0.0004,  # works as well
-                  memory='/scratch/sima9999/tmp/',
+                  memory=None,
                    n_jobs=12
                   )
     X = np.hstack((lamda.real[:, np.newaxis], lamda.imag[:, np.newaxis]))
@@ -401,8 +399,8 @@ def multi_sensi(vars_ale, vars_epi, result_dir, ret_names, method, fname=None, *
         w, h = fig.get_size_inches()
         plt.subplots_adjust(top=(h - 0.1) / h, bottom=0.8 / h, left=0.8 / w, right=(w - 0.1) / w)
         if fname is not None:
-            plt.savefig(f'/home/sima9999/2019_OMA_UQ/tex/figures/examples/uq_oma_a/{fname}.pdf', backend='pgf')
-            plt.savefig(f'/home/sima9999/2019_OMA_UQ/tex/figures/examples/uq_oma_a/{fname}.png', backend='pgf')
+            plt.savefig(os.path.join('figures', f'{fname}.pdf'), backend='pgf')
+            plt.savefig(os.path.join('figures', f'{fname}.png'), backend='pgf')
         return
 
 
@@ -968,10 +966,13 @@ def stage2mapping(n_locations,
 
 def default_mapping(zeta=0.002, Iy=0.01196, Iz=0.01304, alpha=45,
             v_b=25.0, fs_m=70, duration=2 ** 19 / 70,
-            jid='abcdef123', result_dir=None, working_dir='/dev/shm/womo1998/', skip_existing=False):
+            jid='abcdef123', result_dir=None, working_dir=None, skip_existing=False):
 
     if result_dir is None:
         result_dir = os.getcwd()
+    if working_dir is None:
+        import tempfile
+        working_dir = tempfile.gettempdir()
 
     return mapping(zeta, Iy, Iz, alpha, v_b, fs_m, duration, jid, result_dir, working_dir, skip_existing)
 
@@ -996,6 +997,7 @@ def stage1mapping(v_b, jid, result_dir, working_dir):
 def mapping(zeta, Iy, Iz, alpha,
             v_b, fs_m, duration,
             jid, result_dir, working_dir, skip_existing):
+    import tempfile
     print(jid)
     if not isinstance(result_dir, Path):
         result_dir = Path(result_dir)
@@ -1148,7 +1150,7 @@ def mapping(zeta, Iy, Iz, alpha,
             if isinstance(mech, Mechanical):
                 mech.save(result_dir / f'mechanical.npz')
                 ansys.finish()
-                ansys.cwd('/dev/shm/womo1998/')
+                ansys.cwd(tempfile.gettempdir())
                 ansys.clear()
 
     Force_magnitude = np.sqrt(Fu_time ** 2 + Fv_time ** 2)
@@ -1588,14 +1590,14 @@ def vars_definition(stage=2):
 
 def main():
     import glob
+    import tempfile
 
-    result_dir = Path('/scratch/sima9999/modal_uq/uq_oma_a/samples')
-    working_dir = Path('/dev/shm/womo1998/')
+    result_dir = Path(os.environ.get('UQ_OMA_RESULT_DIR', '.')) / 'samples'
+    working_dir = Path(tempfile.gettempdir())
 
     mech = MechanicalDummy.load(fpath=result_dir / f'mechanical.npz')
 
-    flist = glob.glob('/scratch/sima9999/modal_uq/uq_oma_a/samples/*/*')
-    flist = glob.glob('/scratch/sima9999/modal_uq/uq_oma_a/samples/*/*')
+    flist = glob.glob(str(result_dir / '*' / '*'))
     todolist = []
     for file in flist:
         if not os.path.exists(file + '/response.npz'):
@@ -1616,7 +1618,7 @@ def main():
             print(e)
 
     # default_mapping(jid='8a2a343d_e3f6077f',
-    #                 result_dir=Path('/scratch/sima9999/modal_uq/uq_oma_a/samples/'),
+    #                 result_dir=result_dir,
     #                 skip_existing=True)
     print('exit')
 

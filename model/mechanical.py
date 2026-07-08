@@ -16,7 +16,16 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(level=logging.INFO)
 
-import pyansys
+def _get_pyansys():
+    try:
+        import pyansys
+        return pyansys
+    except ImportError as exc:
+        raise ImportError(
+            "pyansys is required for FEM-based mapping. "
+            "Install it manually (not on PyPI); see the oma_uq[fem] extra."
+        ) from exc
+
 
 # import scipy.stats
 # import scipy.optimize
@@ -434,8 +443,11 @@ class MechanicalDummy(object):
 
         return nodes, lines, chan_dofs
 
-    def export_geometry(self, save_dir='/scratch/sima9999/modal_uq/datasets/'):
+    def export_geometry(self, save_dir=None):
         'save under jid_folder, nodes_file, lines_file, chan_dofs_file'
+        if save_dir is None:
+            import pathlib
+            save_dir = str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets')
         os.makedirs(save_dir, exist_ok=True)
 
         nodes, lines, chan_dofs = self.get_geometry()
@@ -759,6 +771,7 @@ class Mechanical(MechanicalDummy):
     # TODO: Update to newest pyANSYS release
 
     def __init__(self, ansys=None, jobname=None, wdir=None):
+        pyansys = _get_pyansys()
 
         if wdir is not None:
             if not os.path.isdir(wdir):
@@ -806,6 +819,7 @@ class Mechanical(MechanicalDummy):
 
     @staticmethod
     def start_ansys(working_dir=None, jid=None,):
+        pyansys = _get_pyansys()
 
         # global ansys
         # try:
@@ -825,8 +839,7 @@ class Mechanical(MechanicalDummy):
             try:
 
                 ansys = pyansys.launch_mapdl(
-                    # exec_file='/usr/scratch4/app-soft/ansys/v202/ansys/bin/ansys202',
-                    # exec_file='/vegas/apps/ansys/v201/ansys/bin/ansys201',
+                    # exec_file=os.environ.get('ANSYS_EXEC_FILE'),
                     exec_file='/usr/app-soft1/ansys/v201/ansys/bin/ansys201',
                     run_location=working_dir, override=True, loglevel='ERROR',
                     nproc=1, log_apdl=False,
@@ -1602,6 +1615,7 @@ class Mechanical(MechanicalDummy):
             - friction (equivalent per node and mode, averaging?)
             - structural damping (ANSYS routines, IWAN)
         '''
+        pyansys = _get_pyansys()
 
         ansys = self.ansys
 
@@ -1886,6 +1900,7 @@ class Mechanical(MechanicalDummy):
         Half-Sine impulse -> define f_max and power at f_max
 
         '''
+        pyansys = _get_pyansys()
 
         def analytical_constants_half_sine(p0, k, omegan, zeta, tp):
             omegad = omegan * np.sqrt(1 - zeta ** 2)
@@ -2446,6 +2461,7 @@ class Mechanical(MechanicalDummy):
         return omegas, frf, dof_ref_out, dof_ref_inp
 
     def modal_ext(self, damped=True, num_modes=None):  # Modal Analysis
+        pyansys = _get_pyansys()
         ansys = self.ansys
 
         print('External (in python) computation of modal parameters using the state-space formulation')
@@ -2600,6 +2616,7 @@ class Mechanical(MechanicalDummy):
         
         TODO: extend 3D
         '''
+        pyansys = _get_pyansys()
 
         if fz is not None:
             if not isinstance(fz, np.ndarray):
@@ -2656,6 +2673,7 @@ class Mechanical(MechanicalDummy):
         return disp
 
     def modal(self, damped=True, num_modes=None, use_cache=True, reset_sliders=True, modal_matrices=False, use_meas_nodes=False):  # Modal Analysis
+        pyansys = _get_pyansys()
         ansys = self.ansys
 
         ret_vals = super().modal(damped, num_modes, use_cache, modal_matrices)
@@ -3022,6 +3040,7 @@ class Mechanical(MechanicalDummy):
                   timint=1, deltat=None, timesteps=None,
                   out_quant=['d', 'v', 'a'],
                   chunksize=10000, chunk_restart=False, **kwargs):
+        pyansys = _get_pyansys()
         ansys = self.ansys
 
         chunksize = int(chunksize)

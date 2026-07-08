@@ -11,6 +11,8 @@ import os
 import sys
 import glob
 import shutil
+import pathlib
+import tempfile
 
 import logging
 # global logger
@@ -361,8 +363,8 @@ def free_decay_acc(t, R, zeta, omega_d, phi=0):
 #     plot.plot(this_t, ydata, ls='none', marker='+')
 #     plot.show()
 #
-#     np.savetxt("/vegas/users/staff/womo1998/data_hadidi/{}.csv".format(jid), ty.T)
-#     with open("/vegas/users/staff/womo1998/data_hadidi/description_new.txt", "at") as f:
+#     np.savetxt(str(pathlib.Path.cwd() / 'polyuq_results' / '{}.csv'.format(jid)), ty.T)
+#     with open(str(pathlib.Path.cwd() / 'polyuq_results' / 'description_new.txt'), "at") as f:
 #         f.write("{},\t{:1.3f},\t{:1.4f},\t{:1.5f}\n".format(jid,k_2,d,deltat))
 #
 # def generate_student_nl(ansys, omega, zeta, d0, deltat=None,dt_fact=None,timesteps=None, num_cycles=None, f_scale=None, save=True, **kwargs):
@@ -371,7 +373,7 @@ def free_decay_acc(t, R, zeta, omega_d, phi=0):
 #     oldjid= jid
 #     jid=str(uuid.uuid4()).split('-')[-1]
 #     ansys.filname(fname=jid, key=1)
-#     for file in glob.glob(f'/dev/shm/womo1998/{oldjid}.*'):
+#     for file in glob.glob(f'{tempfile.gettempdir()}/{oldjid}.*'):
 #         print(f'removing {file}')
 #         os.remove(file)
 #     print(jid)
@@ -476,7 +478,7 @@ def free_decay_acc(t, R, zeta, omega_d, phi=0):
 # #     plot.plot(this_t, ydata, ls='none', marker='+')
 #     #plot.show()
 #     #print("{},\t{:1.3f},\t{:1.4f},\t{:1.5f},\t{:1.5f},\t{:1.3f}\n".format(jid,omega,zeta,d0,deltat,nl_ity))
-#     source_folder = "/vegas/scratch/womo1998/data_hadidi/datasets_nonlinear_"
+#     source_folder = str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_nonlinear_')
 #     if d0 is not None:
 #         source_folder+='decay/'
 #     else:
@@ -494,9 +496,9 @@ def generate_sdof_time_hist(ansys,
                             omega, zeta, m=1, fric_visc_rat=0, nl_ity=0,  # structural parameters
                             dscale=None, f_scale=None,  # loading parameters
                             deltat=None, dt_fact=None, timesteps=None, num_cycles=None, num_meas_nodes=None, meas_nodes=None,  # signal parameters
-                            savefolder=None, working_dir='/dev/shm/womo1998/', jid=None,  # function parameters
+                            savefolder=None, working_dir=tempfile.gettempdir(), jid=None,  # function parameters
                             ** kwargs):
-#                      ansys, jid, working_dir='/dev/shm/womo1998/', # function parameters
+#                      ansys, jid, working_dir=tempfile.gettempdir(), # function parameters
 #                             omega, zeta, m=1, fric_visc_rat=0, nl_ity=0, # structural parameters
 #                             d0=None, f_scale=None,  # loading parameters
 #                             deltat=None, dt_fact=None, timesteps=None, num_cycles=None, # signal parameters
@@ -881,8 +883,8 @@ def hysteresis(ansys):
                 ax.set_yticklabels(['$-1$', '$-\\nicefrac{1}{2}$', '$0$', '$\\nicefrac{1}{2}$', '$1$'])
 
             fig.subplots_adjust(left=0.08, bottom=0.125, right=0.970, top=0.940, hspace=0.2, wspace=0.1)
-            plot.savefig('/ismhome/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/time_hist_decay_different_systems.pdf')
-            plot.savefig('/ismhome/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/time_hist_decay_different_systems.png')
+            plot.savefig(str(pathlib.Path('figures') / 'time_hist_decay_different_systems.pdf'))
+            plot.savefig(str(pathlib.Path('figures') / 'time_hist_decay_different_systems.png'))
             plot.show()
 
     # massless system loaded with 1.25 sine cycles with 1 %, 5% and 20 % damping (equivalent)
@@ -948,8 +950,8 @@ def hysteresis(ansys):
                 ax.set_xlim((-1, 1))
                 ax.set_ylim((-1, 1))
             fig.subplots_adjust(left=0.08, bottom=0.125, right=0.970, top=0.940, hspace=0.2, wspace=0.1)
-            plot.savefig('/ismhome/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/hysteresis_different_systems.pdf')
-            plot.savefig('/ismhome/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/hysteresis_different_systems.png')
+            plot.savefig(str(pathlib.Path('figures') / 'hysteresis_different_systems.pdf'))
+            plot.savefig(str(pathlib.Path('figures') / 'hysteresis_different_systems.png'))
             plot.show()
 
     # effect of forcing amplitude and rate on the hysteresis with 5 % damping (equivalent)
@@ -1036,8 +1038,8 @@ def hysteresis(ansys):
             plot.annotate('Increasing amplitude', xycoords='figure fraction', textcoords='figure fraction', rotation=90, xytext=(0.05, 0.5), xy=(0.05, 0.9), arrowprops=dict(arrowstyle='->', facecolor='black'), horizontalalignment='center',)
             fig.subplots_adjust(left=0, bottom=0, right=1, top=0.98, hspace=0, wspace=0.03)
 
-            # plot.savefig('/ismhome/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/hysteresis_different_forcing.pdf')
-            # plot.savefig('/ismhome/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/hysteresis_different_forcing.png')
+            # plot.savefig(str(pathlib.Path('figures') / 'hysteresis_different_forcing.pdf'))
+            # plot.savefig(str(pathlib.Path('figures') / 'hysteresis_different_forcing.png'))
 
             plot.show()
 
@@ -1177,21 +1179,21 @@ def  student_data(ansys, ambient=True, nonlinear=True, friction=True):
         fric_visc_rat = 0
 
     if ambient and nonlinear and not friction:
-        savefolder = '/vegas/scratch/womo1998/data_hadidi/datasets_nonlinear_ambient/'
+        savefolder = str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_nonlinear_ambient') + '/'
     elif ambient and not nonlinear and not friction:
-        savefolder = '/vegas/scratch/womo1998/data_hadidi/datasets_linear_ambient/'
+        savefolder = str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_linear_ambient') + '/'
     elif not ambient and not nonlinear and not friction:
-        savefolder = '/vegas/scratch/womo1998/data_hadidi/datasets_linear_decay/'
+        savefolder = str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_linear_decay') + '/'
     elif not ambient and nonlinear and not friction:
-        savefolder = '/vegas/scratch/womo1998/data_hadidi/datasets_nonlinear_decay/'
+        savefolder = str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_nonlinear_decay') + '/'
     elif not ambient and not nonlinear and friction:
-        savefolder = '/vegas/scratch/womo1998/data_hadidi/datasets_friction_decay/'
+        savefolder = str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_friction_decay') + '/'
     elif ambient and not nonlinear and friction:
-        savefolder = '/vegas/scratch/womo1998/data_hadidi/datasets_friction_ambient/'
+        savefolder = str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_friction_ambient') + '/'
     elif not ambient and nonlinear and friction:
-        savefolder = '/vegas/scratch/womo1998/data_hadidi/datasets_general_decay/'
+        savefolder = str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_general_decay') + '/'
     elif ambient and nonlinear and friction:
-        savefolder = '/vegas/scratch/womo1998/data_hadidi/datasets_general_ambient/'
+        savefolder = str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_general_ambient') + '/'
     else:
         raise RuntimeError(f'This combination of inputs is not supported: {ambient}, {nonlinear}, {friction}')
 
@@ -1277,10 +1279,10 @@ def student_data_part2(jid, result_dir, omega, zeta, dt_fact, num_cycles, f_scal
 def identify_student():
     source_num = 0
 
-    source_folder = ['/vegas/scratch/womo1998/data_hadidi/datasets/',
-                     '/vegas/scratch/womo1998/data_hadidi/datasets_ambient/',
-                     '/vegas/scratch/womo1998/data_hadidi/datasets_nonlinear_decay/',
-                     '/vegas/scratch/womo1998/data_hadidi/datasets_nonlinear_ambient/'
+    source_folder = [str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets') + '/',
+                     str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_ambient') + '/',
+                     str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_nonlinear_decay') + '/',
+                     str(pathlib.Path.cwd() / 'polyuq_results' / 'datasets_nonlinear_ambient') + '/'
                      ][source_num]
 
     snr = 100
@@ -1291,7 +1293,7 @@ def identify_student():
     id_inp = []
     fig, axes = plot.subplots(nrows=5, ncols=8)
     axes = axes.flatten()
-    # with open('/vegas/users/staff/womo1998/data_hadidi/description_new.txt','tr') as descr:
+    # with open(f'{source_folder}description_new.txt','tr') as descr:
     with open(f'{source_folder}description.txt', 'tr') as descr:  # , open(f'{source_folder}description_new.txt','tw') as descr_new:
         descr.readline()
         for i, line in enumerate(descr):
@@ -1390,7 +1392,7 @@ def identify_student():
 def generate_mdof_time_hist(ansys, num_nodes=None, damping=None, nl_stiff=None, sl_forces=None, freq_scale=1, num_modes=None,  # structural parameters
                             d0=None, f_scale=None,  # loading parameters
                             deltat=None, dt_fact=None, timesteps=None, num_cycles=None, num_meas_nodes=None, meas_nodes=None,  # signal parameters
-                            savefolder=None, working_dir='/dev/shm/womo1998/', jid=None,  # function parameters
+                            savefolder=None, working_dir=tempfile.gettempdir(), jid=None,  # function parameters
                             ** kwargs):
     '''
     argument:
@@ -1482,10 +1484,10 @@ def generate_mdof_time_hist(ansys, num_nodes=None, damping=None, nl_stiff=None, 
             from pyOMA.core import PreProcessingTools
             from pyOMA.core import PlotMSH
 
-            mech.export_geometry(f'/dev/shm/womo1998/{jid}/')
-            geometry = PreProcessingTools.GeometryProcessor.load_geometry(f'/dev/shm/womo1998/{jid}/grid.txt', f'/dev/shm/womo1998/{jid}/lines.txt')
+            mech.export_geometry(f'{tempfile.gettempdir()}/{jid}/')
+            geometry = PreProcessingTools.GeometryProcessor.load_geometry(f'{tempfile.gettempdir()}/{jid}/grid.txt', f'{tempfile.gettempdir()}/{jid}/lines.txt')
             prep_data = PreProcessingTools.PreProcessSignals(resp_hist, 1 / (t_vals[1] - t_vals[0]))
-            chan_dofs = prep_data.load_chan_dofs(f'/dev/shm/womo1998/{jid}/chan_dofs.txt')
+            chan_dofs = prep_data.load_chan_dofs(f'{tempfile.gettempdir()}/{jid}/chan_dofs.txt')
             prep_data.add_chan_dofs(chan_dofs)
 
             mode_shape_plot = PlotMSH.ModeShapePlot(geometry, prep_data=prep_data)
@@ -1638,9 +1640,9 @@ def generate_mdof_time_hist(ansys, num_nodes=None, damping=None, nl_stiff=None, 
         num_meas_nodes = len(meas_nodes)
         jid = ansys.jobname
 
-        mech.export_geometry(f'/dev/shm/womo1998/{jid}/')
+        mech.export_geometry(f'{tempfile.gettempdir()}/{jid}/')
         from pyOMA.core import PreProcessingTools
-        geometry = PreProcessingTools.GeometryProcessor.load_geometry(f'/dev/shm/womo1998/{jid}/grid.txt', f'/dev/shm/womo1998/{jid}/lines.txt')
+        geometry = PreProcessingTools.GeometryProcessor.load_geometry(f'{tempfile.gettempdir()}/{jid}/grid.txt', f'{tempfile.gettempdir()}/{jid}/lines.txt')
 
         if out_quant[0] == 'd':
             disp_channels = list(range(num_meas_nodes))
@@ -1665,10 +1667,10 @@ def generate_mdof_time_hist(ansys, num_nodes=None, damping=None, nl_stiff=None, 
                                                       velo_channels=velo_channels,
                                                       disp_channels=disp_channels,
                                                       channel_headers=channel_headers)
-        chan_dofs = prep_data.load_chan_dofs(f'/dev/shm/womo1998/{jid}/chan_dofs.txt')
+        chan_dofs = prep_data.load_chan_dofs(f'{tempfile.gettempdir()}/{jid}/chan_dofs.txt')
         prep_data.add_chan_dofs(chan_dofs)
-        prep_data.save_state(f'/dev/shm/womo1998/{jid}/prep_data.npz')
-        np.savez(f'/dev/shm/womo1998/{jid}/IRF_data.npz', t_vals=t_vals, IRF_matrix=IRF_matrix, F_matrix=F_matrix, ener_mat=ener_mat, amp_mat=amp_mat)
+        prep_data.save_state(f'{tempfile.gettempdir()}/{jid}/prep_data.npz')
+        np.savez(f'{tempfile.gettempdir()}/{jid}/IRF_data.npz', t_vals=t_vals, IRF_matrix=IRF_matrix, F_matrix=F_matrix, ener_mat=ener_mat, amp_mat=amp_mat)
 
         # IRF Matrix
         # geometry
@@ -1732,10 +1734,10 @@ def convergence_mdof_undamped(ansys):
             # msh_true = np.array([np.sin(np.array(coords)*(2*i-1)/2*np.pi/-200) for i in range(1,len(frq)+1)]).T
             # msh_errors.append(np.abs(np.abs(msh)-np.abs(msh_true)).flatten())
 
-        np.savez('/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/data/example_convergence_msh.npz', msh_errors=mshs, freq_errors=freqs, coords=coords)
+        np.savez(str(pathlib.Path.cwd() / 'polyuq_results' / 'example_convergence_msh.npz'), msh_errors=mshs, freq_errors=freqs, coords=coords)
         return
     else:
-        arr = np.load('/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/data/example_convergence_msh.npz', allow_pickle=True)
+        arr = np.load(str(pathlib.Path.cwd() / 'polyuq_results' / 'example_convergence_msh.npz'), allow_pickle=True)
         mshs = arr['msh_errors']
         freqs = arr['freq_errors']
         coords = arr['coords']
@@ -1776,8 +1778,8 @@ def convergence_mdof_undamped(ansys):
         ax2.set_ylim((0, 1e-13))
 
         plot.subplots_adjust(left=0.11, right=0.970, top=0.95, bottom=0.115, hspace=0.1)
-        plot.savefig('/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/example_convergence_mdof.pdf')
-        plot.savefig('/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/example_convergence_mdof.png')
+        plot.savefig(str(pathlib.Path('figures') / 'example_convergence_mdof.pdf'))
+        plot.savefig(str(pathlib.Path('figures') / 'example_convergence_mdof.png'))
         plot.show()
 
 
@@ -1873,8 +1875,8 @@ def rayleigh_example(ansys):
 
     plot.sca(ax1)
     plot.subplots_adjust(top=0.95, bottom=0.125, left=0.11, right=0.960)
-    # plot.savefig('/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/example_rayleigh_damping.pdf')
-    # plot.savefig('/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/example_rayleigh_damping.png')
+    # plot.savefig(str(pathlib.Path('figures') / 'example_rayleigh_damping.pdf'))
+    # plot.savefig(str(pathlib.Path('figures') / 'example_rayleigh_damping.png'))
 
     plot.show()
 
@@ -1986,7 +1988,7 @@ def eigenvalue_decomposition_example(ansys):
     # if jid is None:
         # jid = 'file'
     # ansys = pyansys.launch_mapdl(
-        # exec_file='/vegas/apps/ansys/v201/ansys/bin/ansys201',
+        # exec_file=os.environ.get('ANSYS_EXEC_FILE'),
         # run_location=working_dir, override=True, loglevel='WARNING',
         # nproc=1, log_apdl='w',
         # log_broadcast=False, jobname=jid,
@@ -2000,10 +2002,10 @@ def eigenvalue_decomposition_example(ansys):
 
 
 def model_performance():
-    from uncertainty.data_manager import DataManager
+    from polyuq.data_manager import DataManager
 
     if False:
-        data_manager = DataManager(title='model_perf2', working_dir='/dev/shm/womo1998/')
+        data_manager = DataManager(title='model_perf2', working_dir=tempfile.gettempdir())
 
         num_nodes = np.array([5, 10, 15, 25, 35, 45, 60, 75, 90, 110, 130, 150, 175, 200, 225, 250])
         rat_meas_nodes = np.random.random(size=num_nodes.size)
@@ -2025,7 +2027,7 @@ def model_performance():
         data_manager.provide_sample_inputs(arrays, names)
         return
     elif False:
-        data_manager = DataManager.from_existing(dbfile_in='model_perf2.nc', result_dir='/usr/scratch4/sima9999/work/modal_uq/')
+        data_manager = DataManager.from_existing(dbfile_in='model_perf2.nc', result_dir=str(pathlib.Path.cwd() / 'polyuq_results'))
         # data_manager.clear_failed(True)
         data_manager.post_process_samples()
 
@@ -2033,7 +2035,7 @@ def model_performance():
     else:
         ansys = Mechanical.start_ansys()
 
-        data_manager = DataManager.from_existing(dbfile_in='model_perf2.nc', result_dir='/usr/scratch4/sima9999/work/modal_uq/')
+        data_manager = DataManager.from_existing(dbfile_in='model_perf2.nc', result_dir=str(pathlib.Path.cwd() / 'polyuq_results'))
         func_kwargs = {'ansys':ansys, 'damping':0.05, 'dt_fact':0.01, 'timesteps':4001, 'perf_bench':True}
         arg_vars = [('num_nodes', 'num_nodes'), ('d0', 'd0'), ('f_scale', 'f_scale'), ('num_meas_nodes', 'num_meas_nodes'), ('chunksize', 'chunksize')]
 #         data_manager.evaluate_samples(func=generate_mdof_time_hist, arg_vars=arg_vars, ret_names=['mean', 'min', 'max', 'std'],**func_kwargs,
@@ -2091,7 +2093,7 @@ def verify_numerical_accuracy(ansys, m=None, d=1, r=1):
                                        verify_compens=True, meth=meth, parameter_set=parameter_set)
         frequencies, frequencies_n, frequencies_id, damping, damping_n, damping_id, resid_id = arrs
 
-        np.savez(file=f'/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/data/verify_compens_m{m}_r{r}_d{d}.npz',
+        np.savez(file=str(pathlib.Path.cwd() / 'polyuq_results' / f'verify_compens_m{m}_r{r}_d{d}.npz'),
              frequencies=frequencies,
              frequencies_n=frequencies_n,
              frequencies_id=frequencies_id,
@@ -2117,8 +2119,8 @@ def verify_numerical_accuracy(ansys, m=None, d=1, r=1):
 
             for m in range(2, 6):
                 meth = meths[m]
-                print(f'verify_compens_m{m}_r{r}_d{d}', os.path.getmtime(f'/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/data/verify_compens_m{m}_r{r}_d{d}.npz'))
-                arrs = np.load(f'/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/data/verify_compens_m{m}_r{r}_d{d}.npz')
+                print(f'verify_compens_m{m}_r{r}_d{d}', os.path.getmtime(str(pathlib.Path.cwd() / 'polyuq_results' / f'verify_compens_m{m}_r{r}_d{d}.npz')))
+                arrs = np.load(str(pathlib.Path.cwd() / 'polyuq_results' / f'verify_compens_m{m}_r{r}_d{d}.npz'))
                 frequencies, frequencies_n, frequencies_id, damping, damping_n, damping_id, resid_id = [value[:20] for value in arrs.values()]
 
                 periods_id = 1 / frequencies_id
@@ -2162,8 +2164,8 @@ def verify_numerical_accuracy(ansys, m=None, d=1, r=1):
         fig.subplots_adjust(top=0.970, bottom=0.115, left=0.112, right=0.970, hspace=0.180, wspace=0.1)
         axes[1, 2].set_xlim(xmax=0.1039)
 #         plot.suptitle(f'$\\rho = {rho}$')
-#         plot.savefig('/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/example_accuracy_timeint.pdf')
-#         plot.savefig('/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/modeling_realization/example_accuracy_timeint.png')
+#         plot.savefig(str(pathlib.Path('figures') / 'example_accuracy_timeint.pdf'))
+#         plot.savefig(str(pathlib.Path('figures') / 'example_accuracy_timeint.png'))
 #         ax2.legend()
         plot.show()
         return
@@ -2208,7 +2210,7 @@ def IRF_to_ssi(ansys=None, jid=None, **kwargs):
 
         jid = ansys.jobname
 
-        mech.export_geometry(f'/dev/shm/womo1998/{jid}/')
+        mech.export_geometry(f'{tempfile.gettempdir()}/{jid}/')
         import PreProcessingTools
 
         if out_quant[0] == 'd':
@@ -2232,20 +2234,20 @@ def IRF_to_ssi(ansys=None, jid=None, **kwargs):
                                                       velo_channels=velo_channels,
                                                       disp_channels=disp_channels,
                                                       channel_headers=channel_headers)
-        chan_dofs = prep_data.load_chan_dofs(f'/dev/shm/womo1998/{jid}/chan_dofs.txt')
+        chan_dofs = prep_data.load_chan_dofs(f'{tempfile.gettempdir()}/{jid}/chan_dofs.txt')
         prep_data.add_chan_dofs(chan_dofs)
-        prep_data.save_state(f'/dev/shm/womo1998/{jid}/prep_data.npz')
-        np.savez(f'/dev/shm/womo1998/{jid}/IRF_data.npz', t_vals=t_vals, IRF_matrix=IRF_matrix, F_matrix=F_matrix, ener_mat=ener_mat, amp_mat=amp_mat, frequencies=frequencies, damping=damping, modeshapes=modeshapes)
+        prep_data.save_state(f'{tempfile.gettempdir()}/{jid}/prep_data.npz')
+        np.savez(f'{tempfile.gettempdir()}/{jid}/IRF_data.npz', t_vals=t_vals, IRF_matrix=IRF_matrix, F_matrix=F_matrix, ener_mat=ener_mat, amp_mat=amp_mat, frequencies=frequencies, damping=damping, modeshapes=modeshapes)
 
     else:
         assert jid is not None
 
     # creating the geometry for plotting the identified modeshapes
-    geometry_data = GeometryProcessor.load_geometry(f'/dev/shm/womo1998/{jid}/grid.txt', f'/dev/shm/womo1998/{jid}/lines.txt')
+    geometry_data = GeometryProcessor.load_geometry(f'{tempfile.gettempdir()}/{jid}/grid.txt', f'{tempfile.gettempdir()}/{jid}/lines.txt')
 
-    prep_data = PreProcessSignals.load_state(f'/dev/shm/womo1998/{jid}/prep_data.npz')
+    prep_data = PreProcessSignals.load_state(f'{tempfile.gettempdir()}/{jid}/prep_data.npz')
 
-    arrs = np.load(f'/dev/shm/womo1998/{jid}/IRF_data.npz')
+    arrs = np.load(f'{tempfile.gettempdir()}/{jid}/IRF_data.npz')
     t_vals = arrs['t_vals']
     IRF_matrix = arrs['IRF_matrix']
     F_matrix = arrs['F_matrix']
@@ -2314,11 +2316,11 @@ def test():
     but at least the code runs, mistakes will be found later, maybe...
     '''
     
-    working_dir = '/dev/shm/womo1998/'
+    working_dir = tempfile.gettempdir()
     os.makedirs(working_dir, exist_ok=True)
     os.chdir(working_dir)
     
-    save_dir = '/usr/scratch4/sima9999/work/modal_uq/test_mechanical/'
+    save_dir = str(pathlib.Path.cwd() / 'polyuq_results' / 'test_mechanical') + '/'
     
     jid = 'test_mechanical'
     ansys = Mechanical.start_ansys(working_dir, jid)
@@ -2438,7 +2440,7 @@ def main():
     except (pyansys.errors.MapdlExitedError, NameError) as e:
         logger.exception(e)
         global working_dir
-        working_dir = '/dev/shm/womo1998/'
+        working_dir = tempfile.gettempdir()
         os.makedirs(working_dir, exist_ok=True)
         os.chdir(working_dir)
         global jid
@@ -2452,13 +2454,12 @@ def main():
 #     return
     # global working_dir
     # working_dir = os.getcwd()
-    # working_dir = '/usr/scratch4/sima9999/work/modal_uq/'
-    # working_dir = '/dev/shm/womo1998/'
+    # working_dir = tempfile.gettempdir()
     # os.makedirs(working_dir, exist_ok=True)
     # os.chdir(working_dir)
 
 #     import glob
-#     filelist = glob.glob('/dev/shm/womo1998/*')
+#     filelist = glob.glob(f'{tempfile.gettempdir()}/*')
 #     for file in filelist:
 #         os.remove(file)
 
@@ -2612,10 +2613,10 @@ if __name__ == '__main__':
 #                 if fric_visc_rat:
 #                     jid += "friction_"
 # 
-#                 student_data_part2(jid=jid, result_dir='/vegas/scratch/womo1998/test/',
+#                 student_data_part2(jid=jid, result_dir=str(pathlib.Path.cwd() / 'polyuq_results' / 'test'),
 #                            omega=2*np.pi*1.7240461713677018, zeta=zeta,
 #                            dt_fact=0.005562, num_cycles=1304,
 #                            f_scale=f_scale, d_scale=d_scale,
 #                            nl_ity=nl_ity, fric_visc_rat=fric_visc_rat,
-#                            snr_db=np.infty, working_dir='/dev/shm/womo1998/')
+#                            snr_db=np.infty, working_dir=tempfile.gettempdir())
 

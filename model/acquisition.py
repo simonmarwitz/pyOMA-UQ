@@ -1597,16 +1597,18 @@ def system_signal_decimate(N, dec_fact, numtap_fact, nyq_rat, do_plot=False, **k
 
 def uq_dec_noise():
     import seaborn
-    from uncertainty import data_manager
+    import pathlib
+    import tempfile
+    from polyuq import data_manager
 
     num_samples = 10
 
     title = 'decimation_noise'
-    savefolder = '/usr/scratch4/sima9999/work/modal_uq/'
-    result_dir = '/usr/scratch4/sima9999/work/modal_uq/'
+    savefolder = str(pathlib.Path.cwd() / 'polyuq_results') + '/'
+    result_dir = savefolder
 
     if not os.path.exists(result_dir + title + '.nc') or False:
-        dm = data_manager.DataManager(title=title, working_dir='/dev/shm/womo1998/',
+        dm = data_manager.DataManager(title=title, working_dir=tempfile.gettempdir(),
                                    result_dir=result_dir,
                                    overwrite=True)
         dm.generate_sample_inputs(names=['N',
@@ -1647,10 +1649,12 @@ def uq_dec_noise():
 def verify_noise_power():
 
     from model import mechanical
+    import pathlib
+    import tempfile
 
     skip_existing = True
-    working_dir = '/dev/shm/womo1998/'
-    result_dir = '/usr/scratch4/sima9999/work/modal_uq/'
+    working_dir = tempfile.gettempdir()
+    result_dir = str(pathlib.Path.cwd() / 'polyuq_results') + '/'
     jid = 'filter_example'
     # jid='acquire_example'
 
@@ -1757,9 +1761,11 @@ def verify_noise_power():
 def filter_example():
 
     from model import mechanical
+    import pathlib
+    import tempfile
     skip_existing = True
-    working_dir = '/dev/shm/womo1998/'
-    result_dir = '/usr/scratch4/sima9999/work/modal_uq/'
+    working_dir = tempfile.gettempdir()
+    result_dir = str(pathlib.Path.cwd() / 'polyuq_results') + '/'
     jid = 'filter_example'
     # jid='acquire_example'
 
@@ -1901,11 +1907,11 @@ def filter_example():
     figt.legend(handles=leg_handlest, loc=(.77, .12))
     figt.subplots_adjust(.115, .115, .97, .97, .1, .1)
 
-    # figf.savefig('/ismhome/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/math_basics/filter4_example_freq.pdf')
-    # figf.savefig('/ismhome/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/math_basics/filter4_example_freq.png')
+    # figf.savefig(Path('figures') / 'filter4_example_freq.pdf')
+    # figf.savefig(Path('figures') / 'filter4_example_freq.png')
 
-    # figt.savefig('/ismhome/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/math_basics/filter4_example_tim.pdf')
-    # figt.savefig('/ismhome/staff/womo1998/Projects/2019_OMA_UQ/tex/figures/math_basics/filter4_example_tim.png')
+    # figt.savefig(Path('figures') / 'filter4_example_tim.pdf')
+    # figt.savefig(Path('figures') / 'filter4_example_tim.png')
 
     plt.show()
 
@@ -1931,8 +1937,6 @@ def filter_example():
 if __name__ == '__main__':
     # import sys
     # import os
-    # sys.path.append("/home/sima9999/code/")
-    # sys.path.append("/home/sima9999/git/pyOMA/")
     # from pathlib import Path
     #
     # import matplotlib
@@ -1941,15 +1945,15 @@ if __name__ == '__main__':
     # import pandas as pd
     # import scipy.signal
     #
-    # from uncertainty.polymorphic_uncertainty import PolyUQ
-    # from uncertainty.data_manager import DataManager
+    # from polyuq import PolyUQ
+    # from polyuq.data_manager import DataManager
     #
     # from model.mechanical import Mechanical, MechanicalDummy
     # from examples.UQ_OMA import plot_response_field, vars_definition, stage2mapping
     # from helpers import get_pcd, tex_escape
     #
-    # result_dir = Path('/scratch/sima9999/modal_uq/uq_oma_a/')
-    # working_dir = Path('/dev/shm/womo1998/')
+    # result_dir = Path(os.environ.get('UQ_OMA_RESULT_DIR', '.'))
+    # working_dir = Path(tempfile.gettempdir())
     #
     # from model.mechanical import Mechanical, MechanicalDummy
     #

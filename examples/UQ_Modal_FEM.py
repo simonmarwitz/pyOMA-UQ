@@ -1,13 +1,10 @@
-# import sys
 import os
-# sys.path.append("/usr/wrk/people9/sima9999/code/")
-# sys.path.append("/vegas/users/staff/womo1998/Projects/2019_OMA_UQ/code/")
+import tempfile
 import numpy as np
 import zlib, zipfile
 from model.mechanical import Mechanical, MechanicalDummy
 import sys
-sys.path.append('/home/sima9999/git/PolyUQ/')
-from polymorphic_uncertainty import MassFunction, RandomVariable, PolyUQ, \
+from polyuq import MassFunction, RandomVariable, PolyUQ, \
 stat_fun_avg, stat_fun_cdf, stat_fun_ci, stat_fun_hist, stat_fun_lci, stat_fun_pdf, generate_histogram_bins, aggregate_mass
 import logging
 import psutil
@@ -26,7 +23,10 @@ def default_mapping(E=2.1e11, a=0.9, b=0.875, t=0.009, rho=7850, N_wire=1.1e+05,
                      A_wire=0.00075, add_mass=55, zeta=0.0428, dD=198, alpha=0,  # structural
                      ice_occ=1, ice_mass=75,  # environmental
                      num_nodes=200, num_modes=14, fs=10, N=2048, meas_locs=np.array([40, 80, 120, 160, 200]),  # algorithmic
-                     jid='abcdef123', result_dir=None, working_dir='/dev/shm/womo1998/', skip_existing=False):
+                     jid='abcdef123', result_dir=None, working_dir=None, skip_existing=False):
+    if working_dir is None:
+        import tempfile
+        working_dir = tempfile.gettempdir()
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
     return mapping_function(E, a, b, t, rho, N_wire, A_wire, add_mass, zeta, dD, alpha, ice_occ, ice_mass, num_nodes, num_modes, fs, N, meas_locs, jid, result_dir, working_dir, skip_existing)
@@ -269,7 +269,7 @@ def test_interpolation(ret_name, ret_ind, N_mcs_ale):
 
     dim_ex = 'cartesian'
 
-    result_dir = '/usr/scratch4/sima9999/work/modal_uq/uq_modal_beam/'
+    result_dir = os.environ.get('UQ_MODAL_BEAM_DATA_DIR', os.path.join(os.getcwd(), 'polyuq_results', 'uq_modal_beam')) + '/'
 
     poly_uq = PolyUQ(vars_ale, vars_epi, dim_ex=dim_ex)
 
@@ -323,7 +323,7 @@ def test_domain():
     f, zeta, frf = mapping_function(b=0.9, t=0.006, N_wire=110000,
                      A_wire=0.00075, add_mass=60, zeta=0.0083, dD=197.61,  # structural
                     ice_occ=1, ice_mass=0.5,  # environmental
-                   jid='nominal12', working_dir='/dev/shm/womo1998/', skip_existing=skip_existing)
+                   jid='nominal12', working_dir=tempfile.gettempdir(), skip_existing=skip_existing)
     print(time.time() - now)
 
     for frf_ind in range(3):
@@ -342,7 +342,7 @@ def test_domain():
     f, zeta, frf = mapping_function(b=0.95, t=0.00637190164854557, N_wire=189873.988768885,
                      A_wire=0.0008, add_mass=20, zeta=0.0016, dD=104.634587863608,  # structural
                     ice_occ=0, ice_mass=0,  # environmental
-                     jid='max12', working_dir='/dev/shm/womo1998/', skip_existing=skip_existing)
+                     jid='max12', working_dir=tempfile.gettempdir(), skip_existing=skip_existing)
     print(time.time() - now)
     for frf_ind in range(3):
         frf_ = frf[:, frf_ind]
@@ -360,7 +360,7 @@ def test_domain():
     f, zeta, frf = mapping_function(b=0.85, t=0.00562809835145443, N_wire=30126.0112311152,
                      A_wire=0.0007, add_mass=100, zeta=0.015, dD=290.585412136393,  # structural
                     ice_occ=1, ice_mass=1,  # environmental
-                     jid='min12', working_dir='/dev/shm/womo1998/', skip_existing=skip_existing)
+                     jid='min12', working_dir=tempfile.gettempdir(), skip_existing=skip_existing)
     print(time.time() - now)
     for frf_ind in range(3):
         frf_ = frf[:, frf_ind]
@@ -426,11 +426,11 @@ def export_datamanager():
     from uncertainty.data_manager import DataManager
     vars_ale, vars_epi, arg_vars = vars_definition()
     dim_ex = 'cartesian'
-    result_dir = '/usr/scratch4/sima9999/work/modal_uq/uq_modal_beam/'
+    result_dir = os.environ.get('UQ_MODAL_BEAM_DATA_DIR', os.path.join(os.getcwd(), 'polyuq_results', 'uq_modal_beam')) + '/'
 
     dm_grid = DataManager.from_existing('uq_modal_beam.nc',
-                                    result_dir=os.path.join('/dev/shm/womo1998/', 'testsamples'),
-                                    working_dir='/dev/shm/womo1998/')
+                                    result_dir=os.path.join(tempfile.gettempdir(), 'testsamples'),
+                                    working_dir=tempfile.gettempdir())
     with dm_grid.get_database('out', False) as out_ds:
         out_ds_keep = out_ds.copy()
     out_ds = out_ds_keep
@@ -746,13 +746,13 @@ def plots():
 
                 omegas, frf_y = mech.frequency_response(65536, 100, 'uz', fmax=fmax, out_quant='a')
                 frf_y = frf_y[:, 0]
-                # np.savez(f'/usr/scratch4/sima9999/work/modal_uq/system_frf/UZ_{zeta}.npz', frf)
+                # np.savez(os.path.join('polyuq_results', 'system_frf', f'UZ_{zeta}.npz'), frf)
                 # ax1.plot(omegas/2/np.pi, np.abs(frf), color=color,label=f"$\\zeta={zeta}$")
                 #
                 # ax2.plot(omegas/2/np.pi,np.angle(frf)/np.pi*180, color=color)
                 omegas, frf_z = mech.frequency_response(65536, 100, 'uy', fmax=fmax, out_quant='a')
                 frf_z = frf_z[:, 0]
-                # np.savez(f'/usr/scratch4/sima9999/work/modal_uq/system_frf/UY_{zeta}.npz',frf)
+                # np.savez(os.path.join('polyuq_results', 'system_frf', f'UY_{zeta}.npz'),frf)
                 # frf = (frf_y + frf_z) / np.sqrt(2)
                 # frf_mag = np.sqrt((np.abs(frf_y)*np.cos(np.angle(frf_y)))**2 + (np.abs(frf_z)*np.cos(np.angle(frf_z)))**2)
                 # frf_arg = np.arctan2(np.abs(frf_y)*np.cos(np.angle(frf_y)),np.abs(frf_z)*np.cos(np.angle(frf_z)))
@@ -778,8 +778,8 @@ def plots():
             ax2.yaxis.set_major_locator(plt.MultipleLocator(90))
             ax2.yaxis.set_minor_locator(plt.MultipleLocator(45))
             fig.subplots_adjust(top=0.97, bottom=0.125, left=0.105, right=0.97, hspace=0.1)
-            # plt.savefig('/usr/scratch4/sima9999/work/2019_OMA_UQ/tex/figures/introduction/frf_example_struc_beam.pdf')
-            # plt.savefig('/usr/scratch4/sima9999/work/2019_OMA_UQ/tex/figures/introduction/frf_example_struc_beam.png')
+            # plt.savefig('figures/frf_example_struc_beam.pdf')
+            # plt.savefig('figures/frf_example_struc_beam.png')
             plt.show()
 
     if True:
@@ -830,8 +830,8 @@ def plots():
                 ax1.annotate('dritte Ordnung', (1.38, 0.003), ha='center')
 
             fig.subplots_adjust(top=0.97, bottom=0.18, left=0.09, right=0.98, hspace=0.1)
-            plt.savefig('/home/sima9999/2019_OMA_UQ/BB15/figures/introduction/frf_example_struc_beam_wide.pdf')
-            plt.savefig('/home/sima9999/2019_OMA_UQ/BB15/figures/introduction/frf_example_struc_beam_wide.png')
+            plt.savefig('figures/frf_example_struc_beam_wide.pdf')
+            plt.savefig('figures/frf_example_struc_beam_wide.png')
             plt.show()
 
     # parameter study TMD mass with FRF
@@ -899,8 +899,8 @@ def plots():
             fig.subplots_adjust(top=0.97, bottom=0.115, left=0.1, right=0.97, hspace=0.07, wspace=0.035)
             ax.set_xlabel('Frequency [\si{\hertz}]')
             ax.set_xlim((0, 1))
-            # plt.savefig('/usr/scratch4/sima9999/work/2019_OMA_UQ/tex/figures/introduction/example_tmd_frf.pdf')
-            # plt.savefig('/usr/scratch4/sima9999/work/2019_OMA_UQ/tex/figures/introduction/example_tmd_frf.png')
+            # plt.savefig('figures/example_tmd_frf.pdf')
+            # plt.savefig('figures/example_tmd_frf.png')
             plt.show()
 
     # Modal parameters
@@ -941,7 +941,7 @@ def plots():
                 plt.yticks([])
                 plt.subplots_adjust(top=1, bottom=0, left=0, right=1)
                 plt.gca().set_axis_off()
-                # plt.savefig(f'/home/sima9999/2019_OMA_UQ/tex/figures/introduction/mshs/{i}_{j}_wide.pdf')
+                # plt.savefig(os.path.join('figures', f'{i}_{j}_wide.pdf'))
 
     # Mode shape in PlotMSH
     if False:
@@ -954,7 +954,7 @@ def plots():
         mech.example_beam(num_nodes=100, num_modes=14, damping=0.005, num_meas_nodes=100, damp_mode=1)
         f, d, phi, = mech.numerical_response_parameters(dofs=[0, 1, 2])
 
-        mech.export_geometry(f'/dev/shm/womo1998/{jid}/')
+        mech.export_geometry(f'{tempfile.gettempdir()}/{jid}/')
 
         merged_data = MergePoSER()
         merged_data.mean_damping = d[:, np.newaxis]
@@ -964,7 +964,7 @@ def plots():
         merged_data.merged_mode_shapes = phi[:, np.newaxis,:]  # np.reshape(phi[:,:,:],(np.product(phi.shape[:2]),phi.shape[2]),'C')[:,np.newaxis,:]# (total_dofs, 1, common_modes)
         merged_data.merged_num_channels = merged_data.merged_mode_shapes.shape[0]
 
-        geometry = GeometryProcessor.load_geometry(f'/dev/shm/womo1998/{jid}/grid.txt', f'/dev/shm/womo1998/{jid}/lines.txt')
+        geometry = GeometryProcessor.load_geometry(f'{tempfile.gettempdir()}/{jid}/grid.txt', f'{tempfile.gettempdir()}/{jid}/lines.txt')
         geometry.add_node('A1', (0, -70, 0))
         geometry.add_node('A2', (0, 35, 60.6))
         geometry.add_node('A3', (0, 35, -60.6))
@@ -972,10 +972,10 @@ def plots():
         geometry.add_line(('A2', '80'))
         geometry.add_line(('A3', '80'))
         geometry.add_line(('102', '102'))
-        merged_data.merged_chan_dofs = PreProcessSignals.load_chan_dofs(f'/dev/shm/womo1998/{jid}/chan_dofs.txt')
+        merged_data.merged_chan_dofs = PreProcessSignals.load_chan_dofs(f'{tempfile.gettempdir()}/{jid}/chan_dofs.txt')
 
         mode_shape_plot = ModeShapePlot(geometry, merged_data=merged_data, beamcolor='dimgrey', scale=0.2, amplitude=50,
-                                        save_ani_path=f'/home/sima9999/2019_OMA_UQ/pres/figures/introduction/mshs_ani/')
+                                        save_ani_path='figures/mshs_ani/')
 
         # Don't forget to re-enable the hack in draw_lines, to draw the TMD mass on the top
 
