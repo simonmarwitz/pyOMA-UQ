@@ -448,7 +448,7 @@ def clear_wdirs():
 
     import ray
     if not ray.is_initialized():
-        ray.init(address='auto', _redis_password='5241590000000000')
+        ray.init(address='auto')
 
     @ray.remote
     def clear(wdir):
