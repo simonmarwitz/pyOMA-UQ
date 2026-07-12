@@ -66,5 +66,6 @@ markers = [
     "hpc: requires ray/cluster environment",
     "fem: requires ANSYS",
     "data: requires POLYUQ_DATA_DIR",
+    "slow: long-running (minutes)",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]
