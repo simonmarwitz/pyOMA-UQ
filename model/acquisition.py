@@ -778,7 +778,7 @@ class Acquire(object):
             # fir lowpass filter
             # fir_firwin = scipy.signal.firwin(order, cutoff, fs=1 / dt)
             b, a = scipy.signal.iirfilter(
-                    aa_order, [aa_cutoff / (fs_initial / 2)],
+                    aa_order, float(aa_cutoff / (fs_initial / 2)),
                     btype='lowpass', ftype=aa_ftype, output='ba')
 
             # filter signal
