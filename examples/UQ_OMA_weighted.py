@@ -610,14 +610,19 @@ def statistic_level_polyuq(poly_uq, theta_mode, quantity='f'):
 
 def run_weighted_uq_pipeline(result_dir, mech_npz,
                              N_ale=100, N_epi=200, seed=1509,
-                             n_procs=None, skip_lattice=False):
+                             n_procs=None, skip_lattice=False,
+                             min_found=0.1):
     '''
     Complete reduced case study: sampling, response generation, local
     lattice, weighted identifications, clustering, statistic-level focal
     intervals. Results are cached under result_dir; reruns skip completed
-    cells. Returns (poly_uq, pole_db, theta, results) where results maps
-    cluster labels to {'f'/'d': (imp_foc, imp_hyc_mass, intp_errors)}.
+    cells. Clusters found in fewer than ``min_found`` of the epistemic
+    samples (spurious poles) are reported but not interval-optimized.
+    Returns (poly_uq, pole_db, theta, results) where results maps cluster
+    labels to {'f'/'d': {'imp_foc', 'imp_hyc_mass', 'intp_errors'}}.
     '''
+    import pickle
+
     result_dir = Path(result_dir)
     result_dir.mkdir(parents=True, exist_ok=True)
 
@@ -629,24 +634,45 @@ def run_weighted_uq_pipeline(result_dir, mech_npz,
         run_lattice(poly_uq, arg_vars, result_dir, mech_npz, n_procs=n_procs)
 
     pole_db = run_weighted_identification(poly_uq, result_dir)
+    with open(result_dir / 'pole_db.pkl', 'wb') as f:
+        pickle.dump(pole_db, f)
 
     n_imp_hyc = len(poly_uq.imp_hyc_foc_inds)
     labels, pole_table = cluster_modes_weighted(pole_db)
     theta = assemble_theta(labels, pole_table, N_epi, n_imp_hyc)
+    np.savez(result_dir / 'weighted_theta.npz',
+             labels=labels, **{f'theta_{label}_{key}': theta[label][key]
+                               for label in theta
+                               for key in ('f', 'd', 'std_f', 'std_d')})
 
     results = {}
-    for label, theta_mode in theta.items():
+    for label, theta_mode in sorted(theta.items()):
+        found = np.mean(~np.isnan(theta_mode['f'][0]))
+        med_f = np.nanmedian(theta_mode['f'])
+        if found < min_found:
+            logger.info(f'Cluster {label} (median {med_f:.3f} Hz): found in '
+                        f'only {found * 100:.0f}% of epistemic samples — '
+                        'skipping interval optimization.')
+            continue
+        logger.info(f'Cluster {label} (median {med_f:.3f} Hz, found in '
+                    f'{found * 100:.0f}%): statistic-level processing...')
         results[label] = {}
         for quantity in ('f', 'd'):
-            pq_stat = statistic_level_polyuq(poly_uq, theta_mode, quantity)
-            imp_foc, _, intp_errors, _, _ = pq_stat.estimate_imp(
-                interp_fun='rbf', opt_meth='genetic')
+            try:
+                pq_stat = statistic_level_polyuq(poly_uq, theta_mode, quantity)
+                imp_foc, _, intp_errors, _, _ = pq_stat.estimate_imp(
+                    interp_fun='rbf', opt_meth='genetic')
+            except Exception as e:
+                logger.error(f'Cluster {label}, {quantity}: statistic-level '
+                             f'processing failed: {e!r}')
+                continue
             results[label][quantity] = {'imp_foc': imp_foc[0],
                                         'imp_hyc_mass': pq_stat.imp_hyc_mass,
                                         'intp_errors': intp_errors}
-    np.savez(result_dir / 'weighted_results.npz',
-             labels=labels, **{f'theta_{label}_{q}': theta[label][q]
-                               for label in theta for q in ('f', 'd')})
+            np.savez(result_dir / f'weighted_focals_{label}_{quantity}.npz',
+                     imp_foc=imp_foc[0], imp_hyc_mass=pq_stat.imp_hyc_mass,
+                     intp_errors=intp_errors, median=np.nanmedian(
+                         theta_mode[quantity]))
     return poly_uq, pole_db, theta, results
 
 
