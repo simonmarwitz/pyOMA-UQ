@@ -85,10 +85,19 @@ class TestWeights:
         w1 = uw.compute_weights(poly_uq_small, 0, int(n_other))
         assert not np.allclose(w0, w1)
 
-    def test_elimination_mask_degenerate(self, poly_uq_small):
-        mask = uw.elimination_mask(poly_uq_small, 0, 0)
-        assert mask.dtype == bool
-        assert np.all(mask)
+    def test_delegates_to_polyuq_weights(self, poly_uq_small):
+        # compute_weights is now a thin wrapper around PolyUQ._weights with
+        # the secondary-Variability focal-bound elimination active (real for
+        # this nested-T variable set, no longer an all-True placeholder)
+        w = uw.compute_weights(poly_uq_small, 0, 0)
+        assert np.array_equal(
+            w, poly_uq_small._weights(i_imp=0, n_epi=0, eliminate=True))
+        # eliminated samples are exactly those whose [Delta_t1, Delta_t2]
+        # draw does not cover this epistemic sample's T value
+        x_T = poly_uq_small.inp_samp_prim['T'].iloc[0]
+        low = poly_uq_small.inp_suppl_ale['Delta_t1'].values[:64]
+        high = poly_uq_small.inp_suppl_ale['Delta_t2'].values[:64]
+        assert np.array_equal(w == 0, ~((x_T >= low) & (x_T <= high)))
 
 
 class TestIdentificationLoop:

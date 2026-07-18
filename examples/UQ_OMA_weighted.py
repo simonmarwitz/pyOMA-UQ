@@ -8,14 +8,16 @@ model is evaluated on the sample lattice only up to the correlation-function
 estimate (stage2corr_mapping). A weighted OMA estimator then consumes, per
 epistemic sample and Imprecision hypercube, all N_ale correlation estimates
 (or decimated signals) at once, with Incompleteness-conditioned importance
-weights obtained by freezing the secondary Incompleteness variables (c_vb,
-lamda_vb) and evaluating the wind-speed pdf on the aleatory samples
-(PolyUQ.probabilities_imp). Identified poles carry first-order variance
-estimates, are clustered across all epistemic cells (cluster_modes_weighted),
-and the per-mode statistics Theta[q, n_e] are processed on the statistic
-level: a surrogate over the epistemic samples, interval-optimized within the
-combined Imprecision x Incompleteness hypercubes via
-PolyUQ.from_propagated_samples(...).estimate_imp().
+weights computed *inside* PolyUQ (PolyUQ._weights: freeze the secondary
+Incompleteness variables c_vb/lamda_vb, evaluate the wind-speed pdf on the
+aleatory samples) -- the pyOMA estimator wrapper (make_estimator) is injected
+into PolyUQ.estimate_stat, which drives the epistemic/hypercube loops and
+calls the wrapper with the weights. Identified poles carry first-order
+variance estimates, are clustered across all epistemic cells
+(cluster_modes_weighted), and the per-mode statistics Theta[q, n_e] are
+processed on the statistic level: a surrogate over the epistemic samples,
+interval-optimized within the combined Imprecision x Incompleteness
+hypercubes via poly_uq.to_statistic_level(...).estimate_imp().
 
 Three OMA estimators (``method``) x two weighting mechanisms (``weighting``)
 = 6 case-study runs, dispatched by run_weighted_identification /
@@ -820,35 +822,23 @@ def _extract_pole_dict(obj, model_order, n_eff, plscf=False):
 
 # ── (d) Algorithm alg:proposed main loop ─────────────────────────────────────
 
-def elimination_mask(poly_uq, i_imp, n_epi):
-    '''
-    Per-hypercube weight elimination (Algorithm alg:proposed): aleatory
-    samples whose secondary-Variability values fall outside the Imprecision
-    focal bounds of hypercube i_imp receive zero weight. No Imprecision
-    variable of this case study has secondary-Variability focal bounds, so
-    the mask is all-True (documented degeneracy); the generic case would
-    evaluate poly_uq.hypercube_sample_indices on those bound variables.
-    '''
-    return np.ones(poly_uq.N_mcs_ale, dtype=bool)
-
-
 def compute_weights(poly_uq, i_imp, n_epi):
     '''
     Incompleteness-conditioned importance weights for epistemic sample
-    n_epi and Imprecision hypercube i_imp: freeze the secondary
-    Incompleteness variables to their sampled values (as in
-    PolyUQ.optimize_inc) and evaluate the renormalized aleatory pdf on the
-    v_b samples, then apply the per-hypercube elimination mask.
+    n_epi and Imprecision hypercube i_imp. Thin backward-compatible wrapper
+    around PolyUQ._weights: the weight computation moved into PolyUQ, which
+    calls the injected estimator functions *with* these weights
+    (PolyUQ.estimate_stat / optimize_inc(evaluator=...)) -- external code
+    normally never computes them itself anymore.
+
+    The per-hypercube secondary-Variability focal-bound elimination of
+    Algorithm alg:proposed is now actually implemented inside
+    PolyUQ._weights (aleatory samples whose realized focal does not cover
+    the epistemic sample's value of that Imprecision variable receive zero
+    weight), replacing the earlier all-True ``elimination_mask``
+    placeholder; it is a no-op for variable sets without such bounds.
     '''
-    for var in poly_uq.vars_inc:
-        var.freeze(poly_uq.inp_suppl_epi[var.name].iloc[n_epi])
-    weights = poly_uq.probabilities_imp(i_imp)
-    weights = weights * elimination_mask(poly_uq, i_imp, n_epi)
-    total = np.sum(weights)
-    if total <= 0:
-        raise ValueError(f'All weights eliminated in hypercube {i_imp} '
-                         f'at epistemic sample {n_epi}.')
-    return weights / total
+    return poly_uq._weights(i_imp=i_imp, n_epi=n_epi, eliminate=True)
 
 
 _BUILD_IDENTIFICATION_FUNS = {
@@ -874,14 +864,158 @@ def _load_cell_data(poly_uq, result_dir, method, n_epi, max_num_block_rows):
     return cell_data, fs, extra_args
 
 
+def expand_parametric_cdf(mean, std, n_eff, target_probabilities):
+    '''
+    Expand per-pole mean+variance to parametric aleatory CDF rows -- the
+    statistic rows later consumed by PolyUQ.to_statistic_level (data
+    structure of polyuq's stat_fun_cdf: one value per target probability).
+    sigma_pop = std * sqrt(n_eff) un-shrinks the standard error of the
+    weighted mean back to the population aleatory std (see assemble_theta);
+    probabilities are clipped to (1e-4, 1 - 1e-4) (PolyUQ's own default
+    support-truncation percentiles) before the Normal ppf; sigma_pop <= 0
+    collapses to the point estimate (scipy's norm.ppf(scale=0) is nan, not
+    the degenerate point mass).
+
+    mean, std: array-like (n_poles,); returns (n_poles, n_stat).
+    '''
+    from scipy.stats import norm
+    p_eval = np.clip(np.asarray(target_probabilities, dtype=np.float64),
+                     1e-4, 1 - 1e-4)
+    mean = np.asarray(mean, dtype=np.float64)[:, np.newaxis]
+    sigma = np.asarray(std, dtype=np.float64)[:, np.newaxis] * np.sqrt(n_eff)
+    degenerate = ~(sigma > 0)
+    safe_sigma = np.where(degenerate, 1.0, sigma)
+    rows = norm.ppf(p_eval[np.newaxis, :], loc=mean, scale=safe_sigma)
+    return np.where(degenerate, mean, rows)
+
+
+def make_estimator(poly_uq, result_dir, method='sc', weighting='build',
+                   identification_fun=None, max_num_block_rows=80,
+                   convention='substitution', target_probabilities=None):
+    '''
+    Estimator wrapper around pyOMA implementing the injected-callable
+    protocol of PolyUQ.estimate_stat: PolyUQ calls
+    ``estimator(n_epi, i_imp, weights)`` with internally computed weights
+    (there is no weights exit point; this wrapper never computes them).
+
+    weighting='build'
+        One build-time weighted identification per call (the point estimate
+        moves with the weights).
+    weighting='posthoc'
+        ONE unweighted build per epistemic sample, cached in the closure
+        across that sample's hypercube groups; each call refreshes only the
+        variances via apply_block_weights. ``weights=None`` (the
+        fast_posthoc estimate_stat contract) applies uniform weights, i.e.
+        the plain unweighted extraction.
+
+    Each call returns the raw pole arrays (f, d, std_f, std_d, phi, n_eff,
+    order) consumed by cluster_modes_weighted, plus the protocol keys:
+    'keys' (per-call pole indices), 'point' ((n_poles, 4) f/d/std_f/std_d)
+    and -- when ``target_probabilities`` is given -- 'cdf_f'/'cdf_d': the
+    mean+variance -> CDF-values expansion lives INSIDE the estimator
+    (expand_parametric_cdf), for every pole, before any clustering.
+    '''
+    if method not in ('sc', 'sd', 'cf'):
+        raise ValueError(f"'method' must be 'sc', 'sd' or 'cf', got {method!r}.")
+    if weighting not in ('build', 'posthoc'):
+        raise ValueError(f"'weighting' must be 'build' or 'posthoc', got {weighting!r}.")
+    if identification_fun is None:
+        identification_fun = _BUILD_IDENTIFICATION_FUNS[method]
+    plscf = method in _PLSCF_METHODS
+    inp = poly_uq.inp_samp_prim
+    N_ale = poly_uq.N_mcs_ale
+    state = {'n_epi': None}
+
+    def _cell(n_epi):
+        if state['n_epi'] != n_epi:
+            cell_data, fs, extra_args = _load_cell_data(
+                poly_uq, result_dir, method, n_epi, max_num_block_rows)
+            state.update(n_epi=n_epi,
+                         model_order=int(inp['model_order'].iloc[n_epi]),
+                         cell_data=cell_data, fs=fs, extra_args=extra_args,
+                         obj=None)
+        return state
+
+    def estimator(n_epi, i_imp, weights):
+        st = _cell(n_epi)
+        if weights is None:
+            weights = np.full(N_ale, 1.0 / N_ale)
+        if weighting == 'build':
+            pole = dict(identification_fun(st['cell_data'], weights,
+                                           st['model_order'],
+                                           *st['extra_args'], st['fs']))
+        else:
+            if st['obj'] is None:
+                build_fun = _POSTHOC_BUILD_FUNS[method]
+                st['obj'], st['resolved_order'] = build_fun(
+                    st['cell_data'], st['model_order'],
+                    *st['extra_args'], st['fs'])
+            st['obj'].apply_block_weights(weights=weights,
+                                          convention=convention)
+            _, n_eff = st['obj']._validate_weights(weights, N_ale)
+            pole = _extract_pole_dict(st['obj'], st['resolved_order'], n_eff,
+                                      plscf=plscf)
+        pole['keys'] = list(range(len(pole['f'])))
+        pole['point'] = np.column_stack([pole['f'], pole['d'],
+                                         pole['std_f'], pole['std_d']])
+        if target_probabilities is not None:
+            pole['cdf_f'] = expand_parametric_cdf(
+                pole['f'], pole['std_f'], pole['n_eff'], target_probabilities)
+            pole['cdf_d'] = expand_parametric_cdf(
+                pole['d'], pole['std_d'], pole['n_eff'], target_probabilities)
+        return pole
+
+    return estimator
+
+
+def make_reweight_evaluator(obj, resolved_order, pole_index, quantity,
+                            target_probabilities, plscf=False,
+                            convention='substitution', N_mcs_ale=None):
+    '''
+    Re-weighting evaluator for PolyUQ.optimize_inc(evaluator=...) -- the
+    Incompleteness-optimization role of path 'fast_posthoc' (method 3,
+    "OMA-optimized"): PolyUQ freezes the candidate Incompleteness values
+    and computes the weights; this evaluator only consumes them --
+    apply_block_weights refreshes the variances of the cached unweighted
+    build ``obj`` (the point estimates stay frozen, so ``pole_index`` from
+    _extract_pole_dict stays stable), and the pole's re-weighted
+    mean/variance is expanded to the CDF value at
+    target_probabilities[i_stat].
+
+    Close over one pole of one epistemic sample's build and call
+    poly_uq.optimize_inc(n_stat=len(target_probabilities), evaluator=...)
+    once per pole.
+    '''
+    def evaluator(weights, i_imp_hyc, i_stat, min_max):
+        obj.apply_block_weights(weights=weights, convention=convention)
+        _, n_eff = obj._validate_weights(
+            weights, len(weights) if N_mcs_ale is None else N_mcs_ale)
+        pole = _extract_pole_dict(obj, resolved_order, n_eff, plscf=plscf)
+        row = expand_parametric_cdf(
+            pole[quantity][pole_index:pole_index + 1],
+            pole['std_' + quantity][pole_index:pole_index + 1],
+            n_eff, target_probabilities)
+        return row[0, i_stat]
+
+    return evaluator
+
+
 def run_weighted_identification(poly_uq, result_dir, method='sc', weighting='build',
                                 identification_fun=None,
-                                max_num_block_rows=80, convention='substitution'):
+                                max_num_block_rows=80, convention='substitution',
+                                target_probabilities=None, eliminate=False):
     '''
-    Main loop of Algorithm alg:proposed: for each epistemic sample and each
-    Imprecision hypercube, compute the weights and run the weighted
-    identification once — with a dedupe fast path across hypercubes that
-    yield identical weights (always the case here, see module docstring).
+    Main loop of Algorithm alg:proposed, driven by PolyUQ.estimate_stat:
+    the pyOMA estimator wrapper (make_estimator) is injected into PolyUQ,
+    which loops the epistemic samples and Imprecision hypercubes, computes
+    the Incompleteness-conditioned weights internally and calls the wrapper
+    with them -- deduping hypercubes that yield identical weight vectors
+    (always the case here, see module docstring). The resulting stat_db
+    (one entry per (n_epi, weight group)) is flattened back to the
+    historical pole-database layout: one dict per (n_epi, i_imp) with a
+    per-sample ``weights_id`` group counter (entries of one group are
+    consecutive rather than interleaved across i_imp, which no consumer
+    depends on).
 
     ``method`` selects the OMA estimator and its cached lattice data:
 
@@ -922,52 +1056,30 @@ def run_weighted_identification(poly_uq, result_dir, method='sc', weighting='bui
     Returns a pole database: list of dicts with keys n_epi, i_imp and the
     identification outputs.
     '''
-    if method not in ('sc', 'sd', 'cf'):
-        raise ValueError(f"'method' must be 'sc', 'sd' or 'cf', got {method!r}.")
-    if weighting not in ('build', 'posthoc'):
-        raise ValueError(f"'weighting' must be 'build' or 'posthoc', got {weighting!r}.")
-    if identification_fun is None:
-        identification_fun = _BUILD_IDENTIFICATION_FUNS[method]
-
-    N_epi = poly_uq.N_mcs_epi
-    n_imp_hyc = len(poly_uq.imp_hyc_foc_inds)
-    inp = poly_uq.inp_samp_prim
-    plscf = method in _PLSCF_METHODS
+    estimator = make_estimator(poly_uq, result_dir, method=method,
+                               weighting=weighting,
+                               identification_fun=identification_fun,
+                               max_num_block_rows=max_num_block_rows,
+                               convention=convention,
+                               target_probabilities=target_probabilities)
+    # weighted=True for both weightings: 'posthoc' builds once per epistemic
+    # sample inside the wrapper and only refreshes variances per weight group.
+    # eliminate=False pins the historical case-study weights: the nested-T
+    # design predates PolyUQ._weights' real focal-bound elimination, under
+    # which its small-N_ale cells can be eliminated entirely; the redo's
+    # plain-T variable set makes elimination a no-op either way.
+    stat_db = poly_uq.estimate_stat(estimator, weighted=True,
+                                    eliminate=eliminate)
 
     pole_db = []
-    for n_epi in range(N_epi):
-        model_order = int(inp['model_order'].iloc[n_epi])
-        cell_data, fs, extra_args = _load_cell_data(
-            poly_uq, result_dir, method, n_epi, max_num_block_rows)
-
-        if weighting == 'build':
-            cache = {}
-            for i_imp in range(n_imp_hyc):
-                weights = compute_weights(poly_uq, i_imp, n_epi)
-                key = weights.tobytes()
-                if key not in cache:
-                    cache[key] = identification_fun(
-                        cell_data, weights, model_order, *extra_args, fs)
-                pole_db.append(dict(cache[key], n_epi=n_epi, i_imp=i_imp,
-                                    weights_id=len(cache) - 1))
-            logger.info(f'Epistemic sample {n_epi}: {len(cache)} distinct '
-                        f'weighted identification(s) for {n_imp_hyc} hypercubes.')
-        else:
-            build_fun = _POSTHOC_BUILD_FUNS[method]
-            obj, resolved_order = build_fun(cell_data, model_order, *extra_args, fs)
-            cache = {}
-            for i_imp in range(n_imp_hyc):
-                weights = compute_weights(poly_uq, i_imp, n_epi)
-                key = weights.tobytes()
-                if key not in cache:
-                    obj.apply_block_weights(weights=weights, convention=convention)
-                    _, n_eff = obj._validate_weights(weights, poly_uq.N_mcs_ale)
-                    cache[key] = _extract_pole_dict(
-                        obj, resolved_order, n_eff, plscf=plscf)
-                pole_db.append(dict(cache[key], n_epi=n_epi, i_imp=i_imp,
-                                    weights_id=len(cache) - 1))
-            logger.info(f'Epistemic sample {n_epi}: {len(cache)} distinct '
-                        f'post-hoc reweighting(s) for {n_imp_hyc} hypercubes.')
+    group_counter = {}
+    for entry in stat_db:
+        n_epi = entry['n_epi']
+        weights_id = group_counter[n_epi] = group_counter.get(n_epi, -1) + 1
+        base = {key: value for key, value in entry.items()
+                if key != 'i_imp_hycs'}
+        for i_imp in entry['i_imp_hycs']:
+            pole_db.append(dict(base, i_imp=i_imp, weights_id=weights_id))
     return pole_db
 
 
@@ -1063,65 +1175,56 @@ def assemble_theta(labels, pole_table, N_epi, n_imp_hyc):
 
 # ── (f) statistic-level Imprecision/Incompleteness processing ────────────────
 
-def _primary_copy(var):
-    '''Fresh primary=True MassFunction with the focal sets and masses of
-    ``var`` (used to lift the secondary Incompleteness variables into the
-    statistic-level instance, where their hypercubes become part of H^c_r).'''
-    focals = []
-    for _, low, high in var._focals:
-        if isinstance(high, float) and np.isnan(high):
-            focals.append((low,))
-        else:
-            focals.append((low, high))
-    copy = MassFunction(var.name, focals,
-                        np.array(var.masses, dtype=float).ravel(),
-                        primary=True)
-    copy.pretty_name = getattr(var, 'pretty_name', var.name)
-    return copy
+def _dedupe_rows(rows_full):
+    '''Bytewise dedupe of per-hypercube statistic rows (identical NaN
+    patterns merge): returns (rows (n_unique, N_epi), hyc_rows or None when
+    a single row covers all hypercubes -- the weight-degenerate case).'''
+    rows_full = np.atleast_2d(np.asarray(rows_full, dtype=np.float64))
+    row_index = {}
+    hyc_rows = np.empty(rows_full.shape[0], dtype=int)
+    rows = []
+    for i_hyc in range(rows_full.shape[0]):
+        key = rows_full[i_hyc].tobytes()
+        if key not in row_index:
+            row_index[key] = len(rows)
+            rows.append(rows_full[i_hyc])
+        hyc_rows[i_hyc] = row_index[key]
+    rows = np.vstack(rows)
+    if rows.shape[0] == 1:
+        return rows, None
+    return rows, hyc_rows
 
 
-def _statistic_level_inputs(poly_uq):
+def statistic_level_instance(poly_uq, theta_mode, quantity='f'):
     '''
-    Shared surrogate inputs for the statistic-level PolyUQ instance of a
-    clustered mode: the Imprecision variables, the primary Incompleteness
-    variable (DAQ_noise_rms) and — required to make the Incompleteness
-    hypercube bounds meaningful — the secondary Incompleteness values
-    (c_vb, lamda_vb) that drove the weights, all as primary variables of a
-    fresh instance (their cartesian focal products are the combined
-    hypercubes H^i_q x H^c_r, 72 in this case study). Used by both
-    statistic_level_polyuq (point estimate) and
-    parametric_cdf_statistic_level_polyuq (D2 aleatory CDF).
+    Build the statistic-level PolyUQ instance for one clustered mode via
+    PolyUQ.to_statistic_level (which lifts all epistemic variables to
+    primary; their cartesian focal products are the combined hypercubes
+    H^i_q x H^c_r, 72 in this case study). The per-hypercube rows
+    Theta[q, n_e] are deduped bytewise: in the documented weight-degenerate
+    case they collapse to a single row and hyc_rows is None; otherwise
+    hyc_rows (already expanded onto the combined statistic-level grid) must
+    be passed to estimate_imp so each hypercube optimizes on the surrogate
+    of its own weight group's row.
+
+    Returns (pq_stat, hyc_rows).
     '''
-    vars_stat = [_primary_copy(var) for var in poly_uq.vars_epi]
-    inp_names_prim = [var.name for var in poly_uq.vars_imp]
-    inp_names_sec = [var.name for var in poly_uq.vars_inc]
-    N_epi = poly_uq.N_mcs_epi
-    x_t = pd.concat(
-        [poly_uq.inp_samp_prim[inp_names_prim].iloc[:N_epi].reset_index(drop=True),
-         poly_uq.inp_suppl_epi[inp_names_sec].iloc[:N_epi].reset_index(drop=True)],
-        axis=1)
-    return vars_stat, x_t
+    rows, hyc_rows = _dedupe_rows(theta_mode[quantity])
+    pq_stat = poly_uq.to_statistic_level(rows, out_name=f'theta_{quantity}')
+    if hyc_rows is not None:
+        hyc_rows = poly_uq.expand_hyc_rows(pq_stat, hyc_rows)
+    return pq_stat, hyc_rows
 
 
 def statistic_level_polyuq(poly_uq, theta_mode, quantity='f'):
     '''
-    Build the statistic-level PolyUQ instance for one clustered mode. The
-    output samples are Theta[0, n_e]: q-independent due to the documented
-    weight-elimination degeneracy, so a single surrogate over the epistemic
-    samples covers all Imprecision hypercubes.
-
-    Call .estimate_imp() on the returned instance; its imp_foc[0] are the
-    focal intervals F^Theta_{q,r} with masses imp_hyc_mass.
+    Backward-compatible wrapper around statistic_level_instance for the
+    documented weight-degenerate case: returns only the instance (whose
+    single deduped row equals Theta[0, n_e]). Call .estimate_imp() on it;
+    its imp_foc[0] are the focal intervals F^Theta_{q,r} with masses
+    imp_hyc_mass.
     '''
-    vars_stat, x_t = _statistic_level_inputs(poly_uq)
-
-    out = np.asarray(theta_mode[quantity][0, :], dtype=np.float64)
-    if np.all(np.isnan(out)):
-        raise ValueError('The mode was not found in any epistemic sample.')
-
-    return PolyUQ.from_propagated_samples(
-        vars_stat, x_t, out[np.newaxis, :],
-        out_name=f'theta_{quantity}')
+    return statistic_level_instance(poly_uq, theta_mode, quantity)[0]
 
 
 def parametric_cdf_statistic_level_polyuq(poly_uq, theta_mode, quantity,
@@ -1154,30 +1257,18 @@ def parametric_cdf_statistic_level_polyuq(poly_uq, theta_mode, quantity,
     the resulting imp_foc[0] into an (n_stat, n_hyc, 2) array (the archived
     study's polyuq_cdf_inc.npz layout).
     '''
-    from scipy.stats import norm
-
-    vars_stat, x_t = _statistic_level_inputs(poly_uq)
-
     f_row = np.asarray(theta_mode[quantity][0, :], dtype=np.float64)
     sigma_row = np.asarray(theta_mode[f'sigma_pop_{quantity}'][0, :],
                            dtype=np.float64)
     if np.all(np.isnan(f_row)):
         raise ValueError('The mode was not found in any epistemic sample.')
 
-    p_eval = np.clip(np.asarray(target_probabilities, dtype=np.float64),
-                     1e-4, 1 - 1e-4)
-    # scipy's norm.ppf(scale=0) is nan (not the degenerate point mass), so
-    # handle sigma_pop -> 0 explicitly: the aleatory CDF collapses to the
-    # point estimate at every probability level.
-    degenerate = sigma_row <= 0
-    safe_sigma = np.where(degenerate, 1.0, sigma_row)
-    instances = []
-    for p in p_eval:
-        out_row = np.where(degenerate, f_row, norm.ppf(p, loc=f_row, scale=safe_sigma))
-        instances.append(PolyUQ.from_propagated_samples(
-            vars_stat, x_t, out_row[np.newaxis, :],
-            out_name=f'theta_{quantity}_cdf'))
-    return instances
+    # expansion via expand_parametric_cdf (sigma_pop is already the
+    # population std, so n_eff=1); one statistic-level instance per level
+    rows = expand_parametric_cdf(f_row, sigma_row, 1.0, target_probabilities)
+    return [poly_uq.to_statistic_level(rows[:, i_stat],
+                                       out_name=f'theta_{quantity}_cdf')
+            for i_stat in range(rows.shape[1])]
 
 
 # ── (g) full pipeline ────────────────────────────────────────────────────────
@@ -1223,7 +1314,8 @@ def run_weighted_uq_pipeline(result_dir, mech_npz,
 
     vars_ale, vars_epi, arg_vars, _ = vars_definition_weighted()
     if poly_uq is None:
-        poly_uq = PolyUQ(vars_ale, vars_epi, dim_ex='cartesian')
+        path = 'fast_build' if weighting == 'build' else 'fast_posthoc'
+        poly_uq = PolyUQ(vars_ale, vars_epi, dim_ex='cartesian', path=path)
         poly_uq.sample_qmc(N_mcs_ale=N_ale, N_mcs_epi=N_epi, seed=seed)
     N_epi = poly_uq.N_mcs_epi
 
@@ -1259,9 +1351,10 @@ def run_weighted_uq_pipeline(result_dir, mech_npz,
         results[label] = {}
         for quantity in ('f', 'd'):
             try:
-                pq_stat = statistic_level_polyuq(poly_uq, theta_mode, quantity)
+                pq_stat, hyc_rows = statistic_level_instance(
+                    poly_uq, theta_mode, quantity)
                 imp_foc, _, intp_errors, _, _ = pq_stat.estimate_imp(
-                    interp_fun='rbf', opt_meth='genetic')
+                    interp_fun='rbf', opt_meth='genetic', hyc_rows=hyc_rows)
             except Exception as e:
                 logger.error(f'Cluster {label}, {quantity}: statistic-level '
                              f'processing failed: {e!r}')
@@ -1303,7 +1396,9 @@ def run_weighted_uq_pipeline_all(result_dir, mech_npz,
     result_dir.mkdir(parents=True, exist_ok=True)
 
     vars_ale, vars_epi, arg_vars, _ = vars_definition_weighted()
-    poly_uq = PolyUQ(vars_ale, vars_epi, dim_ex='cartesian')
+    # one shared instance for both weightings: the path only sets
+    # estimate_stat's default, which run_weighted_identification overrides
+    poly_uq = PolyUQ(vars_ale, vars_epi, dim_ex='cartesian', path='fast_build')
     poly_uq.sample_qmc(N_mcs_ale=N_ale, N_mcs_epi=N_epi, seed=seed)
 
     run_lattice(poly_uq, arg_vars, result_dir, mech_npz, n_procs=n_procs,
