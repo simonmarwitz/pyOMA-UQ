@@ -148,12 +148,23 @@ def modal_frf(mech, N, fs, inp_nodes=None, out_nodes=None, out_quant='a'):
     n_inp, n_out = phi_inp.shape[0], phi_out.shape[0]
     residues = residues.reshape((n_inp * n_out, num_modes))
 
-    # frequency kernels for all poles at once: single BLAS call
     poles = np.concatenate((lamda, np.conj(lamda)))
-    residues = np.hstack((residues, np.conj(residues)))
-    omega_scale = 1 / (1j * omegas[:, np.newaxis] - poles[np.newaxis, :])
+    residues = np.hstack((residues, np.conj(residues))).astype(np.complex64)
 
-    frf = (omega_scale @ residues.T).reshape((N // 2 + 1, n_inp, n_out))
+    # Frequency kernels are matmul'd in chunks and kept in complex64
+    # throughout (the function's own return dtype) rather than as one
+    # (N // 2 + 1, n_inp * n_out) complex128 array: at the N needed to cover
+    # wide Imprecision duration bounds, that single intermediate would be
+    # several GB and a further same-sized copy on the final downcast.
+    n_freq = N // 2 + 1
+    frf = np.empty((n_freq, n_inp, n_out), dtype=np.complex64)
+    chunk_size = 8192
+    for start in range(0, n_freq, chunk_size):
+        stop = min(start + chunk_size, n_freq)
+        omega_scale = (1 / (1j * omegas[start:stop, np.newaxis]
+                            - poles[np.newaxis, :])).astype(np.complex64)
+        frf[start:stop] = (omega_scale @ residues.T).reshape(
+            (stop - start, n_inp, n_out))
 
     if out_quant == 'a':
         frf *= -omegas[:, np.newaxis, np.newaxis] ** 2
@@ -162,7 +173,7 @@ def modal_frf(mech, N, fs, inp_nodes=None, out_nodes=None, out_quant='a'):
     elif out_quant != 'd':
         raise ValueError(f'This output quantity is invalid: {out_quant}')
 
-    return omegas, frf.astype(np.complex64)
+    return omegas, frf
 
 
 def synthesize_response(frf, fs, v_b, seed, force_scale=DEFAULT_FORCE_SCALE):

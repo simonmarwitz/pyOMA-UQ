@@ -3,9 +3,9 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "oma_uq"
+name = "uq_oma_b"
 version = "0.1.0a1"
-description = "Application notebooks and structural models for PolyUQ — OMA uncertainty case study"
+description = "Weighted/statistic-level OMA uncertainty case studies for PolyUQ (successor of oma_uq / uq_oma_a)"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
@@ -50,7 +50,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/simonmarwitz/oma_uq"
+Predecessor = "https://github.com/simonmarwitz/oma_uq"
 "PolyUQ engine" = "https://github.com/simonmarwitz/PolyUQ"
 "Supplemental Data" = "https://doi.org/10.71758/refodat.46"
 
