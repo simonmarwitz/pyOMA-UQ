@@ -243,6 +243,86 @@ class ToyResponseProvider:
         return t_vals, accel, np.asarray(toy_response.CANDIDATE_NODES)
 
 
+# real structural response provider (FRF from the full ANSYS model)
+N_FRF = 2 ** 19      # timesteps of the precomputed structural FRF
+                     # (mechanical_frf.dat has N//2+1 = 262145 freq lines);
+                     # 2**19/70 = 7489.6 s >= 3600 s max T support
+
+
+class FRFResponseProvider:
+    '''
+    Response provider backed by the *real* structural model: the precomputed
+    non-classical compliance FRF (mechanical_frf.dat, ~342 GB, memmapped by
+    MechanicalDummy.load). Per id_ale it synthesizes (and caches) the ambient
+    ACCELERATION response at the candidate sensor nodes by streaming the whole
+    FRF through transient_ifrf, driven by the original study's windfield
+    excitation (UQ_OMA.stage1mapping constants). Drop-in replacement for
+    ToyResponseProvider -- identical (id_ale, v_b) -> (t_vals,
+    accel(N, n_nodes, 2), nodes) contract -- so run_lattice/stage2corr_mapping
+    are unchanged; only the injected provider differs (toy vs real).
+
+    accel-only (out_quant=['a']) to halve peak memory; generated at N=N_FRF
+    (7489.6 s @ 70 Hz), covering T's <=3600 s support with acquisition
+    truncating to the epistemic duration downstream. Each call streams the
+    full FRF once (I/O-bound), so run responses at low concurrency.
+    '''
+
+    def __init__(self, result_dir, mech_npz):
+        self.result_dir = Path(result_dir)
+        self.mech_npz = Path(mech_npz)
+        self._mech = None
+        self._out_node_index = None
+
+    def _get_mech(self):
+        if self._mech is None:
+            from model.mechanical import MechanicalDummy
+            self._mech = MechanicalDummy.load(str(self.mech_npz))
+        return self._mech
+
+    def _candidate_indices(self, mech):
+        '''Indices of CANDIDATE_NODES along transient_ifrf's node axis. That
+        output is reshaped to (N_out, len(meas_nodes), 2) (mechanical.py, the
+        order='F' reshape), so the node axis is exactly ``mech.meas_nodes``.'''
+        if self._out_node_index is None:
+            from model import toy_response
+            meas_nodes = np.asarray(mech.meas_nodes, dtype=int)  # [1..203]
+            cand = np.asarray(toy_response.CANDIDATE_NODES, dtype=int)
+            idx = np.searchsorted(meas_nodes, cand)
+            assert np.array_equal(meas_nodes[idx], cand), \
+                'candidate node not found in meas_nodes'
+            self._out_node_index = (idx, cand)
+        return self._out_node_index
+
+    def __call__(self, id_ale, v_b):
+        fpath = self.result_dir / id_ale / 'response.npz'
+        if fpath.exists():
+            with np.load(fpath) as arr:
+                return arr['t_vals'], arr['a_freq_time'], arr['meas_nodes']
+        fpath.parent.mkdir(parents=True, exist_ok=True)
+
+        from examples.UQ_OMA import windfield
+        mech = self._get_mech()
+        idx, cand = self._candidate_indices(mech)
+        seed = int.from_bytes(bytes(id_ale, 'utf-8'), 'big') % (2 ** 32)
+
+        # windfield excitation (stage1mapping constants), forces at input nodes
+        x_grid = mech.nodes_coordinates[0:-2, 1]
+        inp_nodes = mech.nodes_coordinates[0:-2, 0]
+        Fu_time, Fv_time = windfield(
+            x_grid, category=3, v_b=v_b, fs_w=FS_M, duration=N_FRF / FS_M,
+            C_uz=10, C_vz=7, b=1.9, cscd=1.0, cf=2.86519, seed=seed)
+
+        # accel-only response by streaming the full FRF
+        t_vals, quants = mech.transient_ifrf(
+            Fu_time, Fv_time, inp_nodes, inp_dt=1 / FS_M, out_quant=['a'])
+        a_freq_time = [q for q in quants if q is not None][-1]
+
+        accel = np.ascontiguousarray(a_freq_time[:, idx, :]).astype(np.float32)
+        np.savez(fpath, t_vals=t_vals, a_freq_time=accel, meas_nodes=cand,
+                 v_b=v_b, seed=seed)
+        return t_vals, accel, cand
+
+
 # ── (b) lattice mapping: response -> acquisition -> correlation estimate ─────
 
 def stage2corr_mapping(n_locations, DAQ_noise_rms, decimation_factor, tau_max,
@@ -384,8 +464,8 @@ def stage2corr_mapping(n_locations, DAQ_noise_rms, decimation_factor, tau_max,
 _WORKER_STATE = {}
 
 
-def _init_worker(result_dir, mech_npz):
-    _WORKER_STATE['provider'] = ToyResponseProvider(result_dir, mech_npz)
+def _init_worker(provider_cls, result_dir, mech_npz):
+    _WORKER_STATE['provider'] = provider_cls(result_dir, mech_npz)
 
 
 def _run_lattice_task(task):
@@ -399,7 +479,7 @@ def _run_lattice_task(task):
 
 
 def run_lattice(poly_uq, arg_vars, result_dir, mech_npz, n_procs=None,
-                cache_signal=False):
+                cache_signal=False, provider_cls=ToyResponseProvider):
     '''
     Evaluate stage2corr_mapping on the full N_ale x N_epi lattice with local
     multiprocessing. Responses are generated once per aleatory sample
@@ -408,13 +488,20 @@ def run_lattice(poly_uq, arg_vars, result_dir, mech_npz, n_procs=None,
     cache_signal : bool, optional
         Forwarded to stage2corr_mapping: also cache the decimated signal per
         cell for the data-driven / projection SSI pipeline (method='sd').
+    provider_cls : type, optional
+        Response provider class (constructed as ``provider_cls(result_dir,
+        mech_npz)``): ToyResponseProvider (default, synthetic modal response)
+        or FRFResponseProvider (real structural FRF). Responses are still
+        pre-generated sequentially -- FRFResponseProvider's per-sample cost
+        (a full FRF stream + ~40 GB windfield) makes serial generation the
+        safe default; parallelise externally if the node has the memory.
     '''
     result_dir = Path(result_dir)
     inp = poly_uq.inp_samp_prim
     N_ale, N_epi = poly_uq.N_mcs_ale, poly_uq.N_mcs_epi
 
-    # pre-generate responses sequentially (one shared FRF build)
-    provider = ToyResponseProvider(result_dir, mech_npz)
+    # pre-generate responses sequentially (one shared FRF/model build)
+    provider = provider_cls(result_dir, mech_npz)
     for n_ale in range(N_ale):
         provider(f'a{n_ale:04d}', inp['v_b'].iloc[n_ale])
 
@@ -432,7 +519,7 @@ def run_lattice(poly_uq, arg_vars, result_dir, mech_npz, n_procs=None,
         n_procs = max(1, (os.cpu_count() or 2) - 2)
     failures = []
     with multiprocessing.Pool(n_procs, initializer=_init_worker,
-                              initargs=(result_dir, mech_npz)) as pool:
+                              initargs=(provider_cls, result_dir, mech_npz)) as pool:
         for jid, err in pool.imap_unordered(_run_lattice_task, tasks,
                                             chunksize=8):
             if err is not None:
@@ -1288,7 +1375,7 @@ def run_weighted_uq_pipeline(result_dir, mech_npz,
                              N_ale=100, N_epi=200, seed=1509,
                              n_procs=None, skip_lattice=False,
                              min_found=0.1, method='sc', weighting='build',
-                             poly_uq=None):
+                             poly_uq=None, provider_cls=ToyResponseProvider):
     '''
     Complete reduced case study: sampling, response generation, local
     lattice, weighted identifications, clustering, statistic-level focal
@@ -1332,7 +1419,7 @@ def run_weighted_uq_pipeline(result_dir, mech_npz,
 
     if not skip_lattice:
         run_lattice(poly_uq, arg_vars, result_dir, mech_npz, n_procs=n_procs,
-                    cache_signal=(method == 'sd'))
+                    cache_signal=(method == 'sd'), provider_cls=provider_cls)
 
     pole_db = run_weighted_identification(poly_uq, result_dir, method=method,
                                           weighting=weighting)
