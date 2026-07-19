@@ -64,32 +64,31 @@ the original study (UQ_OMA.vars_definition) are fixed to representatives of
 their highest-mass focal sets. m_lags is derived (ceil(tau_max * fs)), the
 estimator is fixed to Blackman-Tukey.
 
-The recording duration T is a genuinely Imprecise variable: a single-focal
-MassFunction whose one interval is bounded below by Delta_t1 and above by
-Delta_t2, two independent truncated-normal RandomVariables, rather than a
-plain numeric interval — PolyUQ's native focal-nesting mechanism
-(MassFunction.support()/numeric_focal() recurse into a nested
-UncertainVariable's own support/frozen value). Delta_t1 ~ TruncNorm(mean=10
-min, std=1 min, truncated +-2 min); Delta_t2 ~ TruncNorm(mean=30 min, std=5
-min, truncated +-5 min) — deliberately large stds so the effect of a *true*
-Imprecision variable (one that actually moves stage2corr_mapping) on the
-propagated modal-parameter uncertainty is clearly measurable, unlike the
-secondary Incompleteness variables (c_vb, lamda_vb) which only reweight.
-Delta_t1/Delta_t2 are *secondary-Variability* (listed in vars_ale, not
-vars_epi, with primary=False) rather than secondary Incompleteness like
-c_vb/lamda_vb: T's focal bound is formed by aleatory samples, so their
-per-aleatory-sample density is handled by PolyUQ.probabilities_imp's
-hyc_hyp_vars/inp_suppl_ale machinery, not by the epistemic-freeze path
-c_vb/lamda_vb use.
+The recording duration T is a genuinely Imprecise variable: a two-focal
+MassFunction with plain numeric interval bounds, [(10, 20), (30, 60)]
+minutes, masses [0.5, 0.5] — an ordinary Imprecision variable in the same
+mould as tau_max/model_order. (An earlier design used a single focal whose
+lower/upper bounds were nested secondary-Variability RandomVariables
+Delta_t1/Delta_t2; that is structurally unsupported by the weighted/
+statistic-level path, whose Imprecision optimization runs *after* the
+aleatory statistics have been collapsed into Theta[q, n_epi], so a
+Variability-bounded Imprecision interval can no longer resolve — see
+project_case_study_2_redo.md — and was replaced by this plain two-focal T.)
+T's realized numeric value is in minutes and is converted to seconds at the
+top of stage2corr_mapping, where it sets Acquire.sample's recording length;
+the two focal sets give a genuine, measurable Imprecision effect on the
+propagated modal-parameter uncertainty, unlike the secondary Incompleteness
+variables (c_vb, lamda_vb) which only reweight.
 
-Case-study degeneracy (unaffected by T): T has a single focal set (mass
-1.0), so — like DAQ_noise_rms/decimation_factor — it does not itself branch
-the Imprecision hypercube grid; per-hypercube weights stay independent of q
-exactly as before T was added. Delta_t1/Delta_t2's densities still enter
-compute_weights (via hyc_hyp_vars) and change the weight *values* relative
-to not having T at all, but uniformly across every hypercube, so OMA still
-effectively runs once per epistemic sample. The generic per-q loop (with a
-dedupe fast path) is implemented anyway to match the dissertation
+Case-study degeneracy: T is Imprecision, not Incompleteness, so its two
+focal sets branch the Imprecision hypercube grid (like tau_max) but do not
+enter compute_weights — the importance weights depend only on the
+Incompleteness samples (c_vb/lamda_vb, via the wind-speed density) and stay
+identical across all of an epistemic sample's Imprecision hypercubes. OMA
+therefore still runs once per epistemic sample (the dedupe fast path
+collapses the per-q loop to one identification), even though each epistemic
+sample now spans 36 Imprecision hypercubes (n_loc 3 x tau 2 x ord 3 x T 2)
+rather than 18. The generic per-q loop is kept to match the dissertation
 algorithm.
 
 Development data: responses are synthesized locally from the mast's stored
@@ -115,8 +114,8 @@ from polyuq import MassFunction, RandomVariable, PolyUQ
 logger = logging.getLogger(__name__)
 
 FS_M = 70.0          # sampling rate of the synthesized "mechanical" response
-N_GEN = 2 ** 18      # generated timesteps per aleatory record (~3746 s;
-                     # covers Delta_t2's <=35 min = 2100 s focal support)
+N_GEN = 2 ** 18      # generated timesteps per aleatory record (~3745 s @ 70 Hz;
+                     # covers T's longest focal, 60 min = 3600 s, ~4% margin)
 NUM_NODES = 203      # mast model nodes, as in stage2mapping
 NYQ_MAX = 35.0       # pole-mapping Nyquist for clustering, as in cluster_modes
 
@@ -143,16 +142,15 @@ def vars_definition_weighted():
     "risk-loving" focal (fs 3.9 ... 10 Hz), m_lags removed (derived as
     ceil(tau_max * fs)).
 
-    T (recording duration) is a genuinely Imprecise MassFunction with a
-    single focal set (mass 1.0): a 2-tuple interval [Delta_t1, Delta_t2]
-    whose lower and upper bounds are themselves independent truncated-normal
-    RandomVariables, rather than plain numeric bounds — PolyUQ's native
-    focal-nesting mechanism (MassFunction.support()/numeric_focal() recurse
-    into each nested UncertainVariable). Delta_t1/Delta_t2 are primary=False
-    and listed in vars_ale (secondary Variability), matching how c_vb/
-    lamda_vb are nested under v_b but on the aleatory axis instead of the
-    Incompleteness one. Because T has only one focal set, it does not itself
-    branch the Imprecision hypercube grid (see module docstring).
+    T (recording duration) is a genuinely Imprecise MassFunction with two
+    focal sets, [(10, 20), (30, 60)] minutes with masses [0.5, 0.5] and
+    plain numeric bounds — an ordinary Imprecision variable like tau_max/
+    model_order, not a nested-focal one. (An earlier design bounded a single
+    focal by secondary-Variability RandomVariables Delta_t1/Delta_t2; that is
+    structurally unsupported by the weighted path and was dropped — see the
+    module docstring / project_case_study_2_redo.md.) Its two focal sets
+    branch the Imprecision hypercube grid (n_imp_hyc = 36); the minutes value
+    is converted to seconds at the top of stage2corr_mapping.
 
     Returns (vars_ale, vars_epi, arg_vars, fixed_params); arg_vars maps
     stage2corr_mapping arguments to variable names (model_order acts on the
@@ -188,17 +186,11 @@ def vars_definition_weighted():
                                [0.4, 0.4, 0.2], primary=True)  # imprecision
     model_order.pretty_name = r'$n_\mathrm{ord}$'
 
-    Delta_t1 = RandomVariable('truncnorm', 'Delta_t1', [-2.0, 2.0, 10. * 60, 60.],
-                              primary=False)  # variability, secondary: mean 10 min, std 1 min, +-2 min
-    Delta_t1.pretty_name = r'$\Delta t_1$'
-    Delta_t2 = RandomVariable('truncnorm', 'Delta_t2', [-1.0, 1.0, 30. * 60, 300.],
-                              primary=False)  # variability, secondary: mean 30 min, std 5 min, +-5 min
-    Delta_t2.pretty_name = r'$\Delta t_2$'
-    T = MassFunction('T', [(Delta_t1, Delta_t2)], [1.0],
-                     primary=True)  # imprecision, a single interval bounded by secondary-Variability samples
+    T = MassFunction('T', [(10., 20.), (30., 60.)], [0.5, 0.5],
+                     primary=True)  # imprecision, recording duration in minutes
     T.pretty_name = r'$T$'
 
-    vars_ale = [v_b, Delta_t1, Delta_t2]
+    vars_ale = [v_b]
     vars_epi = [c, lamda,
                 n_locations, DAQ_noise_rms, decimation_factor, tau_max,
                 model_order, T]
@@ -272,10 +264,11 @@ def stage2corr_mapping(n_locations, DAQ_noise_rms, decimation_factor, tau_max,
     aleatory-derived, as in the original.
 
     duration : float
-        Recording length in seconds, passed straight through to
-        ``Acquire.sample``. The frozen numeric value of the Imprecision
-        variable T (vars_definition_weighted), constant along the aleatory
-        axis like the other epistemic arguments.
+        Recording length of T in *minutes* — vars_definition_weighted defines
+        T's focal bounds in minutes; converted to seconds at the top of this
+        function before being passed to ``Acquire.sample``. The frozen numeric
+        value of the Imprecision variable T, constant along the aleatory axis
+        like the other epistemic arguments.
 
     cache_signal : bool, optional
         Also persist the decimated, filtered signal (the input to the
@@ -294,6 +287,11 @@ def stage2corr_mapping(n_locations, DAQ_noise_rms, decimation_factor, tau_max,
     if fixed_params is None:
         fixed_params = FIXED_PARAMS
     result_dir = Path(result_dir)
+
+    # T's focal bounds are defined in minutes (vars_definition_weighted); every
+    # other duration-scale quantity in this module is in seconds. Convert once,
+    # here at the mapping boundary, so both the local and DataManager paths agree.
+    duration = float(duration) * 60.0
 
     id_ale, id_epi = jid.split('_')
     seed_ale = int.from_bytes(bytes(id_ale, 'utf-8'), 'big')
@@ -1003,7 +1001,7 @@ def make_reweight_evaluator(obj, resolved_order, pole_index, quantity,
 def run_weighted_identification(poly_uq, result_dir, method='sc', weighting='build',
                                 identification_fun=None,
                                 max_num_block_rows=80, convention='substitution',
-                                target_probabilities=None, eliminate=False):
+                                target_probabilities=None, eliminate=True):
     '''
     Main loop of Algorithm alg:proposed, driven by PolyUQ.estimate_stat:
     the pyOMA estimator wrapper (make_estimator) is injected into PolyUQ,
@@ -1064,10 +1062,12 @@ def run_weighted_identification(poly_uq, result_dir, method='sc', weighting='bui
                                target_probabilities=target_probabilities)
     # weighted=True for both weightings: 'posthoc' builds once per epistemic
     # sample inside the wrapper and only refreshes variances per weight group.
-    # eliminate=False pins the historical case-study weights: the nested-T
-    # design predates PolyUQ._weights' real focal-bound elimination, under
-    # which its small-N_ale cells can be eliminated entirely; the redo's
-    # plain-T variable set makes elimination a no-op either way.
+    # eliminate=True is algorithm-faithful (PolyUQ._weights' per-hypercube
+    # secondary-Variability focal-bound elimination); for this plain two-focal
+    # T variable set there are no nested-Variability focal bounds, so the
+    # elimination mask is all-True -- a structural no-op that only re-normalizes
+    # the already-unit-sum weights (allclose to eliminate=False) -- see
+    # compute_weights.
     stat_db = poly_uq.estimate_stat(estimator, weighted=True,
                                     eliminate=eliminate)
 

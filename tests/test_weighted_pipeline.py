@@ -33,7 +33,7 @@ class TestVarsDefinition:
 
     def test_variable_sets(self):
         vars_ale, vars_epi, arg_vars, fixed = uw.vars_definition_weighted()
-        assert [v.name for v in vars_ale] == ['v_b', 'Delta_t1', 'Delta_t2']
+        assert [v.name for v in vars_ale] == ['v_b']
         assert len(vars_epi) == 8
         names = {v.name for v in vars_epi}
         assert names == {'c_vb', 'lamda_vb', 'n_locations', 'DAQ_noise_rms',
@@ -41,9 +41,9 @@ class TestVarsDefinition:
         # secondary Incompleteness variables drive the weights
         secondary = {v.name for v in vars_epi if not v.primary}
         assert secondary == {'c_vb', 'lamda_vb'}
-        # secondary Variability variables form T's Imprecision focal bounds
+        # T's focal bounds are plain numbers now -- no secondary Variability
         secondary_ale = {v.name for v in vars_ale if not v.primary}
-        assert secondary_ale == {'Delta_t1', 'Delta_t2'}
+        assert secondary_ale == set()
         # model_order acts on the OMA stage only, not on the lattice
         assert 'model_order' not in arg_vars.values()
         assert arg_vars['duration'] == 'T'
@@ -51,8 +51,8 @@ class TestVarsDefinition:
         assert 'm_lags' not in fixed  # derived from tau_max * fs
 
     def test_hypercube_counts(self, poly_uq_small):
-        # Imprecision hypercubes: n_loc(3) x DAQ(1) x dec(1) x tau(2) x ord(3) x T(1)
-        assert len(poly_uq_small.imp_hyc_foc_inds) == 18
+        # Imprecision hypercubes: n_loc(3) x DAQ(1) x dec(1) x tau(2) x ord(3) x T(2)
+        assert len(poly_uq_small.imp_hyc_foc_inds) == 36
         assert np.isclose(np.sum(poly_uq_small.imp_hyc_mass), 1.0)
 
 
@@ -68,12 +68,12 @@ class TestWeights:
         assert 5 < n_eff < 64
 
     def test_q_independent_in_this_case_study(self, poly_uq_small):
-        # T has a single focal set (mass 1.0), so -- like DAQ_noise_rms/
-        # decimation_factor -- it does not branch the hypercube grid; the
-        # Delta_t1/Delta_t2 densities enter compute_weights uniformly across
-        # every hypercube, so q-independence is unaffected by T.
+        # T's two focal sets branch the Imprecision hypercube grid (36 hyc),
+        # but T is Imprecision, not Incompleteness: it never enters
+        # compute_weights, so the weights stay identical across every
+        # hypercube of one epistemic sample (q-independence).
         w_q = [uw.compute_weights(poly_uq_small, i_imp, 0)
-               for i_imp in range(18)]
+               for i_imp in range(36)]
         for w in w_q[1:]:
             assert np.allclose(w, w_q[0])
 
@@ -86,18 +86,16 @@ class TestWeights:
         assert not np.allclose(w0, w1)
 
     def test_delegates_to_polyuq_weights(self, poly_uq_small):
-        # compute_weights is now a thin wrapper around PolyUQ._weights with
-        # the secondary-Variability focal-bound elimination active (real for
-        # this nested-T variable set, no longer an all-True placeholder)
+        # compute_weights is a thin wrapper around PolyUQ._weights(eliminate=
+        # True). This plain two-focal T set has no secondary-Variability focal
+        # bounds, so the elimination mask is all-True: a structural no-op that
+        # only re-normalizes, leaving no weight eliminated.
         w = uw.compute_weights(poly_uq_small, 0, 0)
         assert np.array_equal(
             w, poly_uq_small._weights(i_imp=0, n_epi=0, eliminate=True))
-        # eliminated samples are exactly those whose [Delta_t1, Delta_t2]
-        # draw does not cover this epistemic sample's T value
-        x_T = poly_uq_small.inp_samp_prim['T'].iloc[0]
-        low = poly_uq_small.inp_suppl_ale['Delta_t1'].values[:64]
-        high = poly_uq_small.inp_suppl_ale['Delta_t2'].values[:64]
-        assert np.array_equal(w == 0, ~((x_T >= low) & (x_T <= high)))
+        w_no_elim = poly_uq_small._weights(i_imp=0, n_epi=0, eliminate=False)
+        assert np.allclose(w, w_no_elim)   # no-op up to renormalization
+        assert np.all(w > 0)               # nothing eliminated
 
 
 class TestIdentificationLoop:
@@ -146,10 +144,11 @@ class TestIdentificationLoop:
         pole_db = uw.run_weighted_identification(
             pq, fake_lattice, identification_fun=counting_stand_in)
 
-        # dedupe: one distinct identification per epistemic sample (T's
-        # single focal set doesn't branch the hypercube grid)
+        # dedupe: one distinct identification per epistemic sample (T branches
+        # the 36-hypercube grid but never enters the weights, so all 36 share
+        # one weight vector)
         assert len(calls) == self.N_EPI
-        assert len(pole_db) == self.N_EPI * 18
+        assert len(pole_db) == self.N_EPI * 36
         # each identification received that epistemic sample's corr stack
         for n_epi, (corr, weights, order, fs) in enumerate(calls):
             assert np.all(corr[0] == 100 * n_epi)
@@ -157,7 +156,7 @@ class TestIdentificationLoop:
             assert order == int(pq.inp_samp_prim['model_order'].iloc[n_epi])
         # bookkeeping: every (n_epi, i_imp) cell present exactly once
         cells = {(e['n_epi'], e['i_imp']) for e in pole_db}
-        assert len(cells) == self.N_EPI * 18
+        assert len(cells) == self.N_EPI * 36
         assert all(e['weights_id'] == 0 for e in pole_db)
 
 
@@ -213,7 +212,7 @@ class TestDataDrivenIdentificationLoop:
         # one distinct identification per epistemic sample, see
         # TestIdentificationLoop.test_dedupe_and_bookkeeping
         assert len(calls) == self.N_EPI
-        assert len(pole_db) == self.N_EPI * 18
+        assert len(pole_db) == self.N_EPI * 36
         inp = pq.inp_samp_prim
         for n_epi, (n_signals, weights, order, num_block_rows, fs) in enumerate(calls):
             assert n_signals == self.N_ALE
@@ -223,7 +222,7 @@ class TestDataDrivenIdentificationLoop:
             m_lags = int(np.ceil(inp['tau_max'].iloc[n_epi] * fs))
             assert num_block_rows == min(m_lags // 2, 80)
         cells = {(e['n_epi'], e['i_imp']) for e in pole_db}
-        assert len(cells) == self.N_EPI * 18
+        assert len(cells) == self.N_EPI * 36
 
     def test_invalid_method_raises(self, fake_signal_lattice):
         vars_ale, vars_epi, _, _ = uw.vars_definition_weighted()
@@ -283,13 +282,13 @@ class TestPLSCFIdentificationLoop:
             pq, fake_lattice, method='cf', identification_fun=counting_stand_in)
 
         assert len(calls) == self.N_EPI
-        assert len(pole_db) == self.N_EPI * 18
+        assert len(pole_db) == self.N_EPI * 36
         for n_epi, (corr, weights, order, fs) in enumerate(calls):
             assert np.all(corr[0] == 100 * n_epi)
             assert np.isclose(np.sum(weights), 1.0)
             assert order == int(pq.inp_samp_prim['model_order'].iloc[n_epi])
         cells = {(e['n_epi'], e['i_imp']) for e in pole_db}
-        assert len(cells) == self.N_EPI * 18
+        assert len(cells) == self.N_EPI * 36
         assert all(e['weights_id'] == 0 for e in pole_db)
 
 
@@ -545,9 +544,9 @@ class TestPosthocIdentificationLoop:
             pq, fake_lattice, method='sc', weighting='posthoc')
 
         assert len(build_calls) == self.N_EPI
-        assert len(pole_db) == self.N_EPI * 18
+        assert len(pole_db) == self.N_EPI * 36
         cells = {(e['n_epi'], e['i_imp']) for e in pole_db}
-        assert len(cells) == self.N_EPI * 18
+        assert len(cells) == self.N_EPI * 36
 
         # frozen point estimate: f identical across every hypercube of one
         # epistemic sample (weights only ever move the variance here)
@@ -646,12 +645,12 @@ class TestStatisticLevel:
         N_epi = poly_uq_small.N_mcs_epi
         theta_mode = {'f': np.tile(
             1.0 + 0.001 * poly_uq_small.inp_samp_prim['model_order']
-            .values[:N_epi] + rng.normal(0, 1e-4, N_epi), (18, 1))}
+            .values[:N_epi] + rng.normal(0, 1e-4, N_epi), (36, 1))}
         theta_mode['f'][:, 2] = np.nan  # a cell where the mode was missed
         pq_stat = uw.statistic_level_polyuq(poly_uq_small, theta_mode, 'f')
 
-        # combined Imprecision x Incompleteness hypercubes: 18 x (2*2*1)
-        assert len(pq_stat.imp_hyc_foc_inds) == 72
+        # combined Imprecision x Incompleteness hypercubes: 36 x (2*2*1)
+        assert len(pq_stat.imp_hyc_foc_inds) == 144
         assert np.isclose(np.sum(pq_stat.imp_hyc_mass), 1.0)
         assert pq_stat.N_mcs_ale == 1
         assert pq_stat.N_mcs_epi == N_epi
@@ -664,7 +663,7 @@ class TestStatisticLevel:
         assert np.isnan(pq_stat.out_samp[0, 2])
 
     def test_all_nan_raises(self, poly_uq_small):
-        theta_mode = {'f': np.full((18, poly_uq_small.N_mcs_epi), np.nan)}
+        theta_mode = {'f': np.full((36, poly_uq_small.N_mcs_epi), np.nan)}
         with pytest.raises(ValueError, match='not found'):
             uw.statistic_level_polyuq(poly_uq_small, theta_mode, 'f')
 
@@ -673,7 +672,7 @@ class TestParametricCdf:
     """Deliverable 2: reconstruct the aleatory CDF from VarSSIRef's
     variance. Structural properties (collapse at sigma_pop=0, monotone
     quantiles) are checked on the pre-optimization out_samp rows — cheap and
-    exact; estimate_imp() itself (genetic optimization over 72 hypercubes)
+    exact; estimate_imp() itself (genetic optimization over 144 hypercubes)
     is exercised only via a stand-in, matching this file's existing
     philosophy of keeping orchestration tests fast."""
 
@@ -683,8 +682,8 @@ class TestParametricCdf:
         rng = np.random.default_rng(1)
         N_epi = poly_uq_small.N_mcs_epi
         f = 1.0 + 0.001 * np.arange(N_epi) + rng.normal(0, 1e-4, N_epi)
-        return {'f': np.tile(f, (18, 1)),
-                'sigma_pop_f': np.tile(np.full(N_epi, sigma), (18, 1))}
+        return {'f': np.tile(f, (36, 1)),
+                'sigma_pop_f': np.tile(np.full(N_epi, sigma), (36, 1))}
 
     def test_sigma_pop_zero_collapses_to_point_estimate(self, poly_uq_small):
         theta_mode = self._theta_mode(poly_uq_small, sigma=0.0)
@@ -704,8 +703,8 @@ class TestParametricCdf:
         assert np.all(np.diff(rows, axis=0) > 0)
 
     def test_all_nan_raises(self, poly_uq_small):
-        theta_mode = {'f': np.full((18, poly_uq_small.N_mcs_epi), np.nan),
-                      'sigma_pop_f': np.full((18, poly_uq_small.N_mcs_epi), np.nan)}
+        theta_mode = {'f': np.full((36, poly_uq_small.N_mcs_epi), np.nan),
+                      'sigma_pop_f': np.full((36, poly_uq_small.N_mcs_epi), np.nan)}
         with pytest.raises(ValueError, match='not found'):
             uw.parametric_cdf_statistic_level_polyuq(
                 poly_uq_small, theta_mode, 'f', np.linspace(0, 1, self.N_STAT))
@@ -730,7 +729,7 @@ class TestParametricCdf:
         assert set(results.keys()) == {0}
         for quantity in ('f', 'd'):
             r = results[0][quantity]
-            n_hyc = 72  # 18 Imprecision x (2*2*1) combined Incompleteness
+            n_hyc = 144  # 36 Imprecision x (2*2*1) combined Incompleteness
             assert r['imp_foc'].shape == (self.N_STAT, n_hyc, 2)
             assert r['imp_hyc_mass'].shape == (n_hyc,)
 
@@ -766,14 +765,15 @@ class TestEndToEndSmall:
                     v_b=inp['v_b'].iloc[n_ale], **args_epi)
 
         pole_db = uw.run_weighted_identification(pq, tmp_path)
-        assert len(pole_db) == N_epi * 18
+        assert len(pole_db) == N_epi * 36
 
         for entry in pole_db:
             assert np.all(np.isfinite(entry['std_f']))
             assert np.all(entry['std_f'] >= 0)
 
         # the lightly damped, well-separated modes must be among the poles
-        # of every epistemic sample (300 s records, n_eff ~ 3 of 5 blocks)
+        # of every epistemic sample (>=10 min records now T is in minutes,
+        # n_eff ~ 3 of 5 blocks)
         for n_epi in range(N_epi):
             entry = next(e for e in pole_db
                          if e['n_epi'] == n_epi and e['i_imp'] == 0)
@@ -803,7 +803,7 @@ class TestEndToEndSmall:
             assert (tmp_path / 'a0000' / f'e{n_epi:04d}' / 'signal.npz').exists()
 
         pole_db = uw.run_weighted_identification(pq, tmp_path, method='sd')
-        assert len(pole_db) == N_epi * 18
+        assert len(pole_db) == N_epi * 36
 
         for entry in pole_db:
             assert np.all(np.isfinite(entry['std_f']))
@@ -837,7 +837,7 @@ class TestEndToEndSmall:
                     v_b=inp['v_b'].iloc[n_ale], **args_epi)
 
         pole_db = uw.run_weighted_identification(pq, tmp_path, method='cf')
-        assert len(pole_db) == N_epi * 18
+        assert len(pole_db) == N_epi * 36
 
         for entry in pole_db:
             assert np.all(np.isfinite(entry['std_f']))
@@ -872,7 +872,7 @@ class TestEndToEndSmall:
 
         pole_db = uw.run_weighted_identification(
             pq, tmp_path, method='sc', weighting='posthoc')
-        assert len(pole_db) == N_epi * 18
+        assert len(pole_db) == N_epi * 36
 
         for entry in pole_db:
             assert np.all(np.isfinite(entry['std_f']))

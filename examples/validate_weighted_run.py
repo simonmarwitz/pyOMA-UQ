@@ -25,11 +25,11 @@ from polyuq import PolyUQ
 print('=== 1+2. pole database: mode coverage and std sanity ===')
 with open(RESULT / 'pole_db.pkl', 'rb') as fh:
     pole_db = pickle.load(fh)
-n_eff = np.array([e['n_eff'] for e in pole_db[::18]])
+n_eff = np.array([e['n_eff'] for e in pole_db[::36]])  # 36 imp-hyc / epi sample
 print(f'{len(pole_db)} pole-db entries; n_eff over epi samples: '
       f'min {n_eff.min():.1f}, median {np.median(n_eff):.1f}, max {n_eff.max():.1f}')
-std_f_all = np.concatenate([e['std_f'] for e in pole_db[::18]])
-std_d_all = np.concatenate([e['std_d'] for e in pole_db[::18]])
+std_f_all = np.concatenate([e['std_f'] for e in pole_db[::36]])
+std_d_all = np.concatenate([e['std_d'] for e in pole_db[::36]])
 print(f'std_f: {np.mean(np.isfinite(std_f_all))*100:.1f}% finite, '
       f'{np.mean(std_f_all[np.isfinite(std_f_all)] >= 0)*100:.1f}% >= 0')
 print(f'std_d: {np.mean(np.isfinite(std_d_all))*100:.1f}% finite')

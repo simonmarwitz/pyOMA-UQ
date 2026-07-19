@@ -5,7 +5,9 @@ run_weighted_uq_pipeline / the original study — no recomputation.
 
 Per matched mode (frequency f, damping ratio d):
   1. stacked focal-interval bars (archived vs. weighted, side by side, not
-     overlaid — different hypercube counts, 144 vs. 72).
+     overlaid — the redo's combined statistic grid is now 36*4 = 144, matching
+     the archived focals_stats (1,144,2), but the two studies' cells are not
+     1:1 comparable so the panels stay side by side).
   2. belief/plausibility p-box overlay on a shared bin grid (the comparable
      view): weighted solid, archived dashed.
 Plus the unit-disk pole-cluster diagram (UQ_OMA.ipynb cell 91) on the
@@ -135,7 +137,8 @@ def compare_mode(quantity, label, k):
     w_foc, w_mass, _ = load_weighted(quantity, label)
     xlabel = XLABEL[quantity]
 
-    # 1. stacked focal intervals, side by side (not overlaid: 144 vs 72 hyc)
+    # 1. stacked focal intervals, side by side (not overlaid: two different
+    #    studies, though both now have 144 combined hypercubes)
     with matplotlib.rc_context(get_pcd('print')):
         fig, (ax0, ax1) = plt.subplots(1, 2, sharey=True)
         plot_focals(arch_stats, arch_mass, ax0)
