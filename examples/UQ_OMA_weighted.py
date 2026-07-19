@@ -579,8 +579,12 @@ def weighted_data_driven_identification(signals, weights, model_order,
     from pyOMA.core.VarSSIRef import VarSSIRef
 
     n_l = signals[0].shape[1]
-    hankel_matrices = [_signal_to_hankel_block(s, num_block_rows, ref_channels, n_l)
-                       for s in signals]
+
+    def hankel_provider(n_block):
+        # streamed per-block build/free (see weighted_data_driven_
+        # identification_build and build_subspace_mat)
+        return _signal_to_hankel_block(signals[n_block], num_block_rows,
+                                       ref_channels, n_l)
 
     model_order = int(model_order)
     n_r = len(ref_channels)
@@ -592,7 +596,8 @@ def weighted_data_driven_identification(signals, weights, model_order,
     varssi.build_subspace_mat(num_block_columns=num_block_rows,
                               num_block_rows=num_block_rows,
                               subspace_method='projection',
-                              hankel_matrices=hankel_matrices)
+                              num_blocks=len(signals),
+                              hankel_provider=hankel_provider)
     varssi.compute_state_matrices(max_model_order=model_order + 1,
                                   lsq_method='pinv')
     varssi.prepare_sensitivities(variance_algo='fast')
@@ -638,8 +643,13 @@ def weighted_data_driven_identification_build(signals, weights, model_order,
     from pyOMA.core.VarSSIRef import VarSSIRef
 
     n_l = signals[0].shape[1]
-    hankel_matrices = [_signal_to_hankel_block(s, num_block_rows, ref_channels, n_l)
-                       for s in signals]
+
+    def hankel_provider(n_block):
+        # built on demand and freed inside VarSSIRef's per-block LQ, so the
+        # N_ale full-size Hankel matrices never coexist (~one block of peak
+        # memory instead of all of them -- see build_subspace_mat)
+        return _signal_to_hankel_block(signals[n_block], num_block_rows,
+                                       ref_channels, n_l)
 
     model_order = int(model_order)
     n_r = len(ref_channels)
@@ -651,7 +661,8 @@ def weighted_data_driven_identification_build(signals, weights, model_order,
     varssi.build_subspace_mat(num_block_columns=num_block_rows,
                               num_block_rows=num_block_rows,
                               subspace_method='projection',
-                              hankel_matrices=hankel_matrices,
+                              num_blocks=len(signals),
+                              hankel_provider=hankel_provider,
                               weights=weights)
     varssi.compute_state_matrices(max_model_order=model_order + 1,
                                   lsq_method='pinv')
