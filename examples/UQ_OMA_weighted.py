@@ -846,8 +846,18 @@ def _build_unweighted_sd(signals, model_order, num_block_rows, fs,
     from pyOMA.core.VarSSIRef import VarSSIRef
 
     n_l = signals[0].shape[1]
-    hankel_matrices = [_signal_to_hankel_block(s, num_block_rows, ref_channels, n_l)
-                       for s in signals]
+
+    def hankel_provider(n_block):
+        # streamed per-block build/free -- the N_ale full-size Hankels never
+        # coexist (~one block of peak memory instead of ~14 GB for 100 blocks),
+        # the same fix already applied to weighted_data_driven_identification(
+        # _build). This is the active method='sd'/weighting='posthoc' build
+        # (dispatched via _POSTHOC_BUILD_FUNS), so streaming it here is what
+        # makes posthoc-sd fit in memory. weights stay None (unweighted build);
+        # apply_block_weights reweights the cached variance factors afterwards.
+        return _signal_to_hankel_block(signals[n_block], num_block_rows,
+                                       ref_channels, n_l)
+
     model_order = int(model_order)
     n_r = len(ref_channels)
     model_order = min(model_order, n_r * num_block_rows, n_l * num_block_rows)
@@ -857,7 +867,8 @@ def _build_unweighted_sd(signals, model_order, num_block_rows, fs,
     varssi.build_subspace_mat(num_block_columns=num_block_rows,
                               num_block_rows=num_block_rows,
                               subspace_method='projection',
-                              hankel_matrices=hankel_matrices)
+                              num_blocks=len(signals),
+                              hankel_provider=hankel_provider)
     varssi.compute_state_matrices(max_model_order=model_order + 1,
                                   lsq_method='pinv')
     varssi.prepare_sensitivities(variance_algo='fast')
