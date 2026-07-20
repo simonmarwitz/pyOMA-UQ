@@ -318,8 +318,17 @@ class FRFResponseProvider:
         a_freq_time = [q for q in quants if q is not None][-1]
 
         accel = np.ascontiguousarray(a_freq_time[:, idx, :]).astype(np.float32)
-        np.savez(fpath, t_vals=t_vals, a_freq_time=accel, meas_nodes=cand,
+        # Atomic write: save to a pid-unique temp in the same dir, then
+        # os.replace into place. Two safety properties: (1) a second generator
+        # running the lattice in reverse can converge on the same a#### without
+        # a torn np.savez corrupting response.npz (the loser just re-does one
+        # sample); (2) a killed job (e.g. a queue CPU-limit kill mid-save)
+        # never leaves a half-written file that still passes the exists() check
+        # above. The temp ends in .npz so np.savez does not append its own.
+        tmp = fpath.parent / f'.response.tmp.{os.getpid()}.npz'
+        np.savez(tmp, t_vals=t_vals, a_freq_time=accel, meas_nodes=cand,
                  v_b=v_b, seed=seed)
+        os.replace(tmp, fpath)
         return t_vals, accel, cand
 
 
