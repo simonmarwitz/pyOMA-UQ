@@ -1,5 +1,5 @@
 # from importlib import reload; 
-from model.mechanical import Mechanical
+from pyoma_uq.models.mechanical import Mechanical
 
 import time
 import numpy as np

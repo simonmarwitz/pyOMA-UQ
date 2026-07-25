@@ -1948,14 +1948,14 @@ if __name__ == '__main__':
     # from polyuq import PolyUQ
     # from polyuq.data_manager import DataManager
     #
-    # from model.mechanical import Mechanical, MechanicalDummy
-    # from examples.UQ_OMA import plot_response_field, vars_definition, stage2mapping
+    # from pyoma_uq.models.mechanical import Mechanical, MechanicalDummy
+    # from pyoma_uq.studies.UQ_OMA import plot_response_field, vars_definition, stage2mapping
     # from helpers import get_pcd, tex_escape
     #
     # result_dir = Path(os.environ.get('UQ_OMA_RESULT_DIR', '.'))
     # working_dir = Path(tempfile.gettempdir())
     #
-    # from model.mechanical import Mechanical, MechanicalDummy
+    # from pyoma_uq.models.mechanical import Mechanical, MechanicalDummy
     #
     # if os.path.split(result_dir)[-1] != 'samples':
     #     result_dir = result_dir / 'samples'

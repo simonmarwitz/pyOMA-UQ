@@ -1,45 +1,83 @@
-# oma_uq
+# pyoma-uq
 
-Application layer for [PolyUQ](https://github.com/simonmarwitz/PolyUQ) — a
-structural health monitoring / operational modal analysis (OMA) case study
-quantifying uncertainty in a guyed-mast wind turbine tower under wind and
-ice loading.
+Polymorphic uncertainty quantification for operational modal analysis — an
+extension module to [pyOMA](https://github.com/simonmarwitz/pyOMA), driven by
+the [PolyUQ](https://github.com/simonmarwitz/PolyUQ) uncertainty engine.
 
-`oma_uq` provides the structural models (`model/`) and case-study scripts
-(`examples/`) that define the aleatory/epistemic variables and mapping
-functions for the mast, and post-processes PolyUQ propagation results into
-sensitivity, imprecision, and incompleteness estimates.
+OMA identifies modal parameters from ambient vibration data, but the answer
+depends on choices nobody can pin down exactly: the analysis band, the number
+of block rows, the model order, and the excitation the structure happened to
+see while it was measured. `pyoma-uq` propagates those *polymorphic*
+uncertainties — aleatory variability, imprecision and incompleteness — through
+the identification itself rather than around it: PolyUQ's
+Incompleteness-conditioned importance weights become the block weights of a
+weighted subspace identification, so the aleatory dimension is folded into the
+estimator instead of being condensed after `N_ale` separate runs.
+
+## The two supported paths
+
+| | model-based | experimental |
+|---|---|---|
+| module | `pyoma_uq.studies.UQ_OMA_weighted` | `pyoma_uq.studies.UQ_OMA_experimental` |
+| signals | synthesised: structural model + numerical excitation + sensing/acquisition chain (`pyoma_uq.models`) | measured |
+| stages | model → excitation → acquisition → signal processing → identification | signal processing → identification |
+| aleatory realisations | sampled wind speeds | the measured data blocks, weighted by their observed response level |
+| mode assignment | global pole clustering (OPTICS) | pairing against a known baseline mode set, inside the estimator |
+
+Both end in the same statistic-level step: per mode, the epistemic samples are
+fitted with a surrogate and interval-optimised over the combined Imprecision ×
+Incompleteness hypercubes (`PolyUQ.to_statistic_level` → `estimate_imp`).
+
+`pyoma_uq.studies.UQ_OMA` is the full per-realisation reference study the two
+paths are compared against. It reads archived cluster outputs and is **not**
+reproducible without the published
+[dataset](https://doi.org/10.71758/refodat.46).
 
 ## Installation
 
 ```bash
 pip install -e .
-pip install -e ../PolyUQ  # or: pip install polyuq
+pip install -e ../PolyUQ   # or: pip install polyuq
 ```
 
 Optional extras:
 
 ```bash
-pip install -e .[hpc]   # ray/scikit-learn/simpleflock/psutil for distributed evaluation and clustering
-pip install -e .[fem]   # requires a manual ANSYS PyMAPDL install; not on PyPI
+pip install -e .[hpc]   # ray / scikit-learn / simpleflock / psutil
 pip install -e .[dev]   # test suite
 ```
 
-## Contents
+## Running the experimental study
 
-- `examples/UQ_OMA.py` — full three-stage OMA case study (wind field →
-  structural response → virtual sensing/identification).
-- `examples/UQ_Modal_Analytical.py` — analytical beam frequency/damping model.
-- `examples/UQ_Modal_FEM.py` — ANSYS-based finite-element beam model.
-- `examples/UQ_Acqui.py` — signal acquisition and quantization studies.
-- `model/` — structural (`mechanical.py`), acquisition (`acquisition.py`),
-  and wind-field (`turbulent_wind.py`) models, plus DSP/illustration
-  notebooks.
+The measurement data location defaults to `/home/womo1998/Projects/2019_Schwabach`
+and can be overridden with `$SCHWABACH_DIR`.
 
-Many of the notebooks and demo functions here were used to produce results
-for the associated thesis/publications and reference pre-computed HPC
-outputs; they cannot be fully re-run without access to the original cluster
-data or the published [refodat dataset](https://doi.org/10.71758/refodat.46).
+```bash
+# reproduce the published 2019 identification and pair it against the
+# archived, manually selected modes
+python -m pyoma_uq.studies.UQ_OMA_experimental --reproduce-baseline --band low
+
+# dry-run the acceptance-rejection screen (milliseconds) to size N_epi
+python -m pyoma_uq.studies.UQ_OMA_experimental --feasibility-only --n-epi 1000
+
+# the full study
+python -m pyoma_uq.studies.UQ_OMA_experimental <result_dir> \
+    --weighting build --n-epi 1000
+```
+
+The identification cost grows roughly cubically with the number of block rows,
+so a full sweep is a cluster job; `--feasibility-only` reports the sampled
+`num_block_rows` distribution the budget follows from.
+
+## Tests
+
+```bash
+pytest -m "not slow"    # fast: pipeline logic against stand-in estimators
+pytest                  # adds the end-to-end identifications
+```
+
+Markers: `slow` (minutes), `data` (needs measurement data), `hpc` (needs a
+cluster environment).
 
 ## License
 

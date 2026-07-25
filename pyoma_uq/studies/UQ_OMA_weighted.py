@@ -223,7 +223,7 @@ class ToyResponseProvider:
 
     def _get_frf(self):
         if self._frf is None:
-            from model.mechanical import MechanicalDummy
+            from pyoma_uq.models.mechanical import MechanicalDummy
             from model import toy_response
             mech = MechanicalDummy.load(str(self.mech_npz))
             _, frf = toy_response.modal_frf(mech, N_GEN, FS_M)
@@ -275,7 +275,7 @@ class FRFResponseProvider:
 
     def _get_mech(self):
         if self._mech is None:
-            from model.mechanical import MechanicalDummy
+            from pyoma_uq.models.mechanical import MechanicalDummy
             self._mech = MechanicalDummy.load(str(self.mech_npz))
         return self._mech
 
@@ -300,7 +300,7 @@ class FRFResponseProvider:
                 return arr['t_vals'], arr['a_freq_time'], arr['meas_nodes']
         fpath.parent.mkdir(parents=True, exist_ok=True)
 
-        from examples.UQ_OMA import windfield
+        from pyoma_uq.studies.UQ_OMA import windfield
         mech = self._get_mech()
         idx, cand = self._candidate_indices(mech)
         seed = int.from_bytes(bytes(id_ale, 'utf-8'), 'big') % (2 ** 32)
@@ -370,7 +370,7 @@ def stage2corr_mapping(n_locations, DAQ_noise_rms, decimation_factor, tau_max,
     Returns the correlation matrix (n_l, n_r, m_lags) and caches it as
     <result_dir>/<id_ale>/<id_epi>/corr.npz (float32).
     '''
-    from model.acquisition import Acquire, sensor_position
+    from pyoma_uq.models.acquisition import Acquire, sensor_position
     from pyOMA.core.PreProcessingTools import PreProcessSignals
 
     if fixed_params is None:
@@ -980,7 +980,8 @@ def _load_cell_data(poly_uq, result_dir, method, n_epi, max_num_block_rows):
     return cell_data, fs, extra_args
 
 
-def expand_parametric_cdf(mean, std, n_eff, target_probabilities):
+def expand_parametric_cdf(mean, std, n_eff, target_probabilities,
+                          dist='normal'):
     '''
     Expand per-pole mean+variance to parametric aleatory CDF rows -- the
     statistic rows later consumed by PolyUQ.to_statistic_level (data
@@ -988,20 +989,44 @@ def expand_parametric_cdf(mean, std, n_eff, target_probabilities):
     sigma_pop = std * sqrt(n_eff) un-shrinks the standard error of the
     weighted mean back to the population aleatory std (see assemble_theta);
     probabilities are clipped to (1e-4, 1 - 1e-4) (PolyUQ's own default
-    support-truncation percentiles) before the Normal ppf; sigma_pop <= 0
+    support-truncation percentiles) before the ppf; sigma_pop <= 0
     collapses to the point estimate (scipy's norm.ppf(scale=0) is nan, not
     the degenerate point mass).
+
+    dist : {'normal', 'lognormal'}, optional
+        Parametric family of the per-pole aleatory distribution.
+        'normal' (default, appropriate for eigenfrequencies) takes
+        N(mean, sigma_pop) and evaluates its ppf directly. 'lognormal'
+        (appropriate for damping ratios, which are strictly positive and
+        whose Normal ppf goes negative at low probability levels) fits a
+        *moment-matched* lognormal -- same first two moments (mean,
+        sigma_pop) but strictly positive and right-skewed: with
+        CV = sigma_pop / mean, the underlying Normal has
+        sigma_ln^2 = ln(1 + CV^2) and mu_ln = ln(mean) - sigma_ln^2 / 2,
+        and the ppf is exp(mu_ln + sigma_ln * Phi^-1(p)). A non-positive
+        mean (no valid lognormal) collapses to the point estimate, like a
+        degenerate sigma.
 
     mean, std: array-like (n_poles,); returns (n_poles, n_stat).
     '''
     from scipy.stats import norm
+    if dist not in ('normal', 'lognormal'):
+        raise ValueError(f"'dist' must be 'normal' or 'lognormal', got {dist!r}.")
     p_eval = np.clip(np.asarray(target_probabilities, dtype=np.float64),
                      1e-4, 1 - 1e-4)
     mean = np.asarray(mean, dtype=np.float64)[:, np.newaxis]
     sigma = np.asarray(std, dtype=np.float64)[:, np.newaxis] * np.sqrt(n_eff)
     degenerate = ~(sigma > 0)
     safe_sigma = np.where(degenerate, 1.0, sigma)
-    rows = norm.ppf(p_eval[np.newaxis, :], loc=mean, scale=safe_sigma)
+    if dist == 'normal':
+        rows = norm.ppf(p_eval[np.newaxis, :], loc=mean, scale=safe_sigma)
+    else:  # 'lognormal' -- moment-matched to (mean, sigma_pop)
+        degenerate = degenerate | ~(mean > 0)   # lognormal needs mean > 0
+        safe_mean = np.where(mean > 0, mean, 1.0)
+        var_ln = np.log1p((safe_sigma / safe_mean) ** 2)
+        sigma_ln = np.sqrt(var_ln)
+        mu_ln = np.log(safe_mean) - 0.5 * var_ln
+        rows = np.exp(mu_ln + sigma_ln * norm.ppf(p_eval[np.newaxis, :]))
     return np.where(degenerate, mean, rows)
 
 
@@ -1076,9 +1101,11 @@ def make_estimator(poly_uq, result_dir, method='sc', weighting='build',
                                          pole['std_f'], pole['std_d']])
         if target_probabilities is not None:
             pole['cdf_f'] = expand_parametric_cdf(
-                pole['f'], pole['std_f'], pole['n_eff'], target_probabilities)
+                pole['f'], pole['std_f'], pole['n_eff'], target_probabilities,
+                dist='normal')
             pole['cdf_d'] = expand_parametric_cdf(
-                pole['d'], pole['std_d'], pole['n_eff'], target_probabilities)
+                pole['d'], pole['std_d'], pole['n_eff'], target_probabilities,
+                dist='lognormal')  # damping: strictly-positive, right-skewed
         return pole
 
     return estimator
@@ -1110,7 +1137,8 @@ def make_reweight_evaluator(obj, resolved_order, pole_index, quantity,
         row = expand_parametric_cdf(
             pole[quantity][pole_index:pole_index + 1],
             pole['std_' + quantity][pole_index:pole_index + 1],
-            n_eff, target_probabilities)
+            n_eff, target_probabilities,
+            dist='lognormal' if quantity == 'd' else 'normal')
         return row[0, i_stat]
 
     return evaluator
@@ -1382,8 +1410,13 @@ def parametric_cdf_statistic_level_polyuq(poly_uq, theta_mode, quantity,
         raise ValueError('The mode was not found in any epistemic sample.')
 
     # expansion via expand_parametric_cdf (sigma_pop is already the
-    # population std, so n_eff=1); one statistic-level instance per level
-    rows = expand_parametric_cdf(f_row, sigma_row, 1.0, target_probabilities)
+    # population std, so n_eff=1); one statistic-level instance per level.
+    # damping ratios are strictly positive and right-skewed -> moment-matched
+    # lognormal (a Normal ppf would give negative damping at low p); the
+    # eigenfrequency stays Normal.
+    dist = 'lognormal' if quantity == 'd' else 'normal'
+    rows = expand_parametric_cdf(f_row, sigma_row, 1.0, target_probabilities,
+                                 dist=dist)
     return [poly_uq.to_statistic_level(rows[:, i_stat],
                                        out_name=f'theta_{quantity}_cdf')
             for i_stat in range(rows.shape[1])]

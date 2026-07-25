@@ -13,10 +13,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import time
 
-from model.turbulent_wind import terrain_parameters, basic_wind_parameters, spectral_wind_field, temporal_wind_field, force_wind_field, plot_windfield
-from model.mechanical import Mechanical, MechanicalDummy
-from model.acquisition import Acquire, sensor_position
-from helpers import get_pcd
+from pyoma_uq.models.turbulent_wind import terrain_parameters, basic_wind_parameters, spectral_wind_field, temporal_wind_field, force_wind_field, plot_windfield
+from pyoma_uq.models.mechanical import Mechanical, MechanicalDummy
+from pyoma_uq.models.acquisition import Acquire, sensor_position
+from polyuq.plotting import get_pcd
 
 from pyOMA.core.PreProcessingTools import PreProcessSignals
 from pyOMA.core.SSICovRef import BRSSICovRef

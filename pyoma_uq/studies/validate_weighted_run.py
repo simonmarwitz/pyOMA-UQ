@@ -19,7 +19,7 @@ KNOWN_F = np.array([0.157, 0.163, 0.179, 0.180, 0.3154, 0.3352, 0.5801,
 KNOWN_D = np.array([1.398, 2.027, 8.897, 8.592, 1.460, 1.952, 0.169, 0.166,
                     0.107, 0.103, 0.077, 0.079, np.nan, np.nan, np.nan, np.nan])
 
-from examples import UQ_OMA_weighted as w
+from pyoma_uq.studies import UQ_OMA_weighted as w
 from polyuq import PolyUQ
 
 print('=== 1+2. pole database: mode coverage and std sanity ===')

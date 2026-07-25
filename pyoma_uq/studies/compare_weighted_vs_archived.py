@@ -23,7 +23,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from examples import UQ_OMA_weighted as w
+from pyoma_uq.studies import UQ_OMA_weighted as w
 from polyuq import compute_belief, plot_focals
 from polyuq.plotting import get_pcd
 

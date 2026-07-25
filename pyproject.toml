@@ -3,9 +3,9 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "uq_oma_b"
+name = "pyoma-uq"
 version = "0.1.0a1"
-description = "Weighted/statistic-level OMA uncertainty case studies for PolyUQ (successor of oma_uq / uq_oma_a)"
+description = "Polymorphic uncertainty quantification for operational modal analysis: a pyOMA extension"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
@@ -27,16 +27,14 @@ classifiers = [
 requires-python = ">=3.9"
 dependencies = [
     "polyuq",
+    "pyoma-toolbox",
     "numpy>=1.24",
     "scipy>=1.10",
+    "pandas>=1.5",
     "matplotlib>=3.5",
 ]
 
 [project.optional-dependencies]
-fem = [
-    # ANSYS PyMAPDL or equivalent for FEM mapping (stage 1)
-    # install manually; not on PyPI
-]
 hpc = [
     "ray",
     "scikit-learn",    # OPTICS clustering in cluster_modes
@@ -56,7 +54,7 @@ Predecessor = "https://github.com/simonmarwitz/oma_uq"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["model*"]
+include = ["pyoma_uq*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -64,7 +62,6 @@ python_files = ["test_*.py"]
 addopts = "-v --tb=short"
 markers = [
     "hpc: requires ray/cluster environment",
-    "fem: requires ANSYS",
     "data: requires POLYUQ_DATA_DIR",
     "slow: long-running (minutes)",
 ]

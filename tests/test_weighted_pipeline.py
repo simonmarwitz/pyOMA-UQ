@@ -1,5 +1,5 @@
 """
-Orchestration tests for the weighted-OMA pipeline (examples/UQ_OMA_weighted).
+Orchestration tests for the weighted-OMA pipeline (pyoma_uq.studies.UQ_OMA_weighted).
 
 The Algorithm alg:proposed logic — variable definitions, Incompleteness-
 conditioned weights, per-hypercube loop with dedupe, clustering, statistic-
@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from polyuq import PolyUQ
 
-from examples import UQ_OMA_weighted as uw
+from pyoma_uq.studies import UQ_OMA_weighted as uw
 
 DATA_DIR = Path(os.environ.get('POLYUQ_DATA_DIR',
                                '/home/womo1998/Projects/uq_oma_a'))
@@ -428,10 +428,16 @@ class TestPLSCFIdentification:
         for f0 in (2.0, 5.0):
             assert np.min(np.abs(result['f'] - f0)) / f0 < 0.05
 
+    @pytest.mark.slow
     def test_order_capped_at_nperseg_minus_two(self):
         """max_model_order = model_order + 1 must stay <= nperseg - 1
         (PLSCF._setup_compute_params), so model_order itself caps at
-        nperseg - 2."""
+        nperseg - 2.
+
+        Marked slow: asking for an order far above the cap makes pyOMA
+        legitimately compute the whole order range below it -- ~9 min wall,
+        ~26 CPU-min. Unmarked it silently dominated the "fast" suite.
+        """
         corr, fs = _synthetic_two_mode_corr_matrices(self.M_LAGS, n_ale=4)
         weights = np.full(4, 0.25)
         result = uw.weighted_plscf_identification(

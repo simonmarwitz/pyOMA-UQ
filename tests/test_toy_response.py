@@ -31,7 +31,7 @@ TEST_NODES = np.array([50, 100, 150, 201])
 
 @pytest.fixture(scope='module')
 def mech():
-    from model.mechanical import MechanicalDummy
+    from pyoma_uq.models.mechanical import MechanicalDummy
     return MechanicalDummy.load(str(MECH_NPZ))
 
 
@@ -46,7 +46,7 @@ def small_frf(mech):
 class TestModalFrf:
 
     def test_lamda_round_trip(self, mech):
-        from model.toy_response import reconstruct_lamda
+        from pyoma_uq.models.toy_response import reconstruct_lamda
         lamda = reconstruct_lamda(mech.damped_frequencies, mech.modal_damping)
         assert np.allclose(np.imag(lamda) / 2 / np.pi,
                            mech.damped_frequencies)
@@ -93,7 +93,7 @@ class TestModalFrf:
 class TestSynthesis:
 
     def test_seed_reproducibility(self, small_frf):
-        from model.toy_response import synthesize_response
+        from pyoma_uq.models.toy_response import synthesize_response
         _, frf = small_frf
         t1, a1 = synthesize_response(frf, FS, v_b=5.0, seed=3)
         t2, a2 = synthesize_response(frf, FS, v_b=5.0, seed=3)
@@ -105,7 +105,7 @@ class TestSynthesis:
         assert a1.dtype == np.float32
 
     def test_vb_quadratic_scaling(self, small_frf):
-        from model.toy_response import synthesize_response
+        from pyoma_uq.models.toy_response import synthesize_response
         _, frf = small_frf
         _, a1 = synthesize_response(frf, FS, v_b=5.0, seed=3)
         _, a2 = synthesize_response(frf, FS, v_b=10.0, seed=3)
@@ -114,7 +114,7 @@ class TestSynthesis:
         assert np.isclose(rms2 / rms1, 4.0, rtol=1e-4)
 
     def test_generate_response_contract(self, small_frf, tmp_path):
-        from model.toy_response import generate_response
+        from pyoma_uq.models.toy_response import generate_response
         _, frf = small_frf
         fpath = tmp_path / 'response.npz'
         generate_response(fpath, frf, FS, v_b=5.0, seed=3,
