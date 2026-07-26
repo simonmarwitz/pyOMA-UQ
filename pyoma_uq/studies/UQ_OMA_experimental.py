@@ -1124,7 +1124,11 @@ def run_experimental_pipeline(result_dir, weighting='build', N_epi=1000,
         a positive value additionally reconstructs the aleatory p-box.
     min_coverage : float
         Baseline modes found in fewer than this fraction of the feasible
-        epistemic samples are reported but not interval-optimized.
+        epistemic samples are reported but not interval-optimized. Note that a
+        second, absolute floor also applies: the statistic-level surrogate is
+        fitted in ``len(vars_imp)`` dimensions and needs at least
+        ``n_dims + 1`` finite samples, so sparser modes are skipped with a
+        message rather than left to raise out of ``estimate_imp``.
     labels : iterable of int, optional
         Restrict to these baseline modes (for quick checks).
     vars_fun : callable, optional
@@ -1225,6 +1229,21 @@ def run_experimental_pipeline(result_dir, weighting='build', N_epi=1000,
                 pq_stat, hyc_rows = statistic_level(
                     poly_uq, label, field='point',
                     i_stat=POINT_FIELDS[quantity])
+                # scipy's RBFInterpolator needs at least n_dims + 1 points for
+                # degree 1; the statistic-level instance is 8-dimensional once
+                # the Incompleteness variables are lifted, so a mode can clear
+                # min_coverage and still be too sparse to fit. Skip it here
+                # with a legible message instead of letting estimate_imp raise.
+                n_dims = len(pq_stat.vars_imp)
+                n_finite = int(np.max(np.sum(np.isfinite(pq_stat.out_samp),
+                                             axis=1)))
+                if n_finite < n_dims + 1:
+                    logger.info(
+                        'Baseline mode %d, %s: only %d finite statistic '
+                        'samples for a %d-dimensional surrogate (needs %d) - '
+                        'skipping interval optimization.',
+                        label, quantity, n_finite, n_dims, n_dims + 1)
+                    continue
                 imp_foc, _, intp_errors, _, _ = pq_stat.estimate_imp(
                     interp_fun='rbf', opt_meth=opt_meth, hyc_rows=hyc_rows)
             except Exception as exc:
