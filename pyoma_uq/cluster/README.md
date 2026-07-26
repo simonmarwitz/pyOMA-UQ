@@ -26,11 +26,38 @@ different data set fails loudly instead of producing plausible nonsense.
 | `exp_{smoke,full}_{build,posthoc}.bsub` | LSF job files |
 | `submit_exp.sh` | retry-submit loop |
 
-## Submitting
+## The other rule that matters: LSF limits CPU time, not wall time
+
+`Batch72` means **72 CPU-hours per job**, not 72 hours of wall
+(`CPULIMIT 4320 min`; exceeding it gives `TERM_CPULIMIT`). Adding workers
+therefore cannot buy a longer run -- it spends the same budget faster. Job
+2029290 asked for 32 slots and died after 2.3 h of wall having completed 175 of
+1500 samples, at exactly 72.2 CPU-h.
+
+The full run needs ~648 CPU-h per weighting (1500 samples x ~1556 core-s), so
+it *must* be split across jobs:
+
+```bash
+./submit_exp_full.sh                 # 125-sample shards, 16 workers, both
+./submit_exp_full.sh 100 16 build    # smaller shards, one weighting
+./submit_exp_merge.sh                # once every shard pickle exists
+```
+
+Each shard writes `<result>/<weighting>_shards/stat_db_<start>_<stop>.pkl`
+atomically, so a killed job never leaves a half-written shard, and re-running
+`submit_exp_full.sh` skips the shards already present. The merge step refuses
+to run if any epistemic sample is missing from the shards rather than quietly
+producing a statistic level fitted on a subset.
+
+Queue CPU limits, for sizing: `Batch24` 24 CPU-h, `Batch72` 72 CPU-h,
+`InterXL` 666 CPU-h; `BatchXL` and `highmem` publish none but sit on different
+host sets and are heavily contended.
+
+## Submitting the smoke
 
 ```bash
 ./submit_exp.sh smoke              # both weightings
-./submit_exp.sh full build         # one of them
+./submit_exp.sh smoke build        # one of them
 ```
 
 `bsub` comes from `source /etc/profile` — `module load lsf` is not reliable on

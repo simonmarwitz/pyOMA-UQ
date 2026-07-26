@@ -83,24 +83,31 @@ def _run_one(n_epi):
 
 
 def _estimate_stat_parallel(poly_uq, state, schwabach, weighting, n_stat,
-                            workers):
-    """PolyUQ.estimate_stat, with its epistemic loop mapped over a pool."""
+                            workers, epi_range=None):
+    """PolyUQ.estimate_stat, with its epistemic loop mapped over a pool.
+
+    *epi_range* restricts the loop to one shard of epistemic samples; the
+    entries it returns are exactly those estimate_stat would have produced for
+    that subset.
+    """
+    if epi_range is None:
+        epi_range = range(poly_uq.N_mcs_epi)
+    total = len(epi_range)
     stat_db, done = [], 0
     t0 = time.time()
     with ProcessPoolExecutor(
             max_workers=workers, initializer=_worker_init,
             initargs=(state, schwabach, weighting, n_stat)) as pool:
-        futures = {pool.submit(_run_one, n): n
-                   for n in range(poly_uq.N_mcs_epi)}
+        futures = {pool.submit(_run_one, n): n for n in epi_range}
         for future in as_completed(futures):
             stat_db.extend(future.result())
             done += 1
-            if done % 25 == 0 or done == poly_uq.N_mcs_epi:
-                rate = (time.time() - t0) / done
-                print(f'  {done}/{poly_uq.N_mcs_epi} samples '
-                      f'({rate:.1f} s/sample wall, '
-                      f'eta {rate * (poly_uq.N_mcs_epi - done) / 3600:.1f} h)',
-                      flush=True)
+            if done % 25 == 0 or done == total:
+                wall = time.time() - t0
+                rate = wall / done
+                print(f'  {done}/{total} samples ({rate:.1f} s/sample wall, '
+                      f'{wall * workers / done:.0f} core-s/sample, '
+                      f'eta {rate * (total - done) / 3600:.1f} h)', flush=True)
     stat_db.sort(key=lambda e: (e['n_epi'], e['i_imp_hycs'][0]))
     poly_uq.stat_db = stat_db
     return stat_db
@@ -117,6 +124,12 @@ def main():
     parser.add_argument('--min-coverage', type=float, default=0.1)
     parser.add_argument('--opt-meth', default='genetic')
     parser.add_argument('--workers', type=int, default=16)
+    parser.add_argument('--epi-start', type=int, default=0)
+    parser.add_argument('--epi-stop', type=int, default=None,
+                        help='exclusive; default = N_epi')
+    parser.add_argument('--merge', action='store_true',
+                        help='skip identification, assemble the shard pickles '
+                             'and run only the statistic level')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -154,21 +167,64 @@ def main():
                          'levels -- wrong sampling state for this data set')
     print(f'a_ref matches the {len(levels)} measured block levels', flush=True)
 
+    import pickle
+    shard_dir = args.result_dir / f'{args.weighting}_shards'
+    shard_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
-    print(f'>>> exp_{args.weighting} START ({args.workers} workers)', flush=True)
 
-    # phase 1: identification, distributed over the epistemic samples
-    _estimate_stat_parallel(poly_uq, args.state, args.schwabach,
-                            args.weighting, args.n_stat, args.workers)
-    print(f'    identification done in {time.time() - t0:.0f} s, '
-          f'{len(poly_uq.stat_db)} stat_db entries', flush=True)
+    if not args.merge:
+        # ── phase 1: identification of one shard of epistemic samples ────────
+        # Sharding is not an optimisation, it is what makes the run possible.
+        # LSF's queue limit is on *CPU* time (TERM_CPULIMIT), not wall time:
+        # Batch72 allows 72 CPU-h per job, and the whole run needs ~648 CPU-h
+        # per weighting. Adding workers only spends that budget faster -- job
+        # 2029290 died after 2.3 h of wall on 32 slots having done 175 of 1500
+        # samples. Only splitting across jobs raises the ceiling.
+        stop = args.epi_stop if args.epi_stop is not None else poly_uq.N_mcs_epi
+        stop = min(stop, poly_uq.N_mcs_epi)
+        out = shard_dir / f'stat_db_{args.epi_start:05d}_{stop:05d}.pkl'
+        if out.exists():
+            print(f'shard {out.name} already present -- nothing to do', flush=True)
+            return
+        print(f'>>> exp_{args.weighting} shard [{args.epi_start},{stop}) '
+              f'START ({args.workers} workers)', flush=True)
+        entries = _estimate_stat_parallel(
+            poly_uq, args.state, args.schwabach, args.weighting, args.n_stat,
+            args.workers, epi_range=range(args.epi_start, stop))
+        tmp = out.with_suffix('.tmp')
+        with open(tmp, 'wb') as fh:
+            pickle.dump(entries, fh)
+        os.replace(tmp, out)          # atomic: a partial file never looks done
+        print(f'>>> shard [{args.epi_start},{stop}) DONE in '
+              f'{time.time() - t0:.0f} s, {len(entries)} entries -> {out.name}',
+              flush=True)
+        return
 
-    # phase 2: statistic level, in the parent against the assembled stat_db
+    # ── phase 2: merge the shards, then the statistic level ──────────────────
+    shards = sorted(shard_dir.glob('stat_db_*.pkl'))
+    if not shards:
+        raise SystemExit(f'no shard pickles in {shard_dir}')
+    stat_db = []
+    for shard in shards:
+        with open(shard, 'rb') as fh:
+            stat_db.extend(pickle.load(fh))
+    covered = {e['n_epi'] for e in stat_db}
+    missing = sorted(set(range(poly_uq.N_mcs_epi)) - covered)
+    if missing:
+        raise SystemExit(f'{len(missing)} epistemic samples missing from the '
+                         f'shards (first: {missing[:5]}); rerun those shards '
+                         'before merging')
+    stat_db.sort(key=lambda e: (e['n_epi'], e['i_imp_hycs'][0]))
+    poly_uq.stat_db = stat_db
+    print(f'merged {len(shards)} shards -> {len(stat_db)} entries covering all '
+          f'{poly_uq.N_mcs_epi} epistemic samples', flush=True)
+
     ex.run_experimental_pipeline(
         args.result_dir, weighting=args.weighting, poly_uq=poly_uq,
         n_stat=args.n_stat, min_coverage=args.min_coverage,
         opt_meth=args.opt_meth, skip_identification=True)
-    print(f'>>> exp_{args.weighting} DONE in {time.time() - t0:.0f} s', flush=True)
+    print(f'>>> exp_{args.weighting} MERGE DONE in {time.time() - t0:.0f} s',
+          flush=True)
 
 
 if __name__ == '__main__':
