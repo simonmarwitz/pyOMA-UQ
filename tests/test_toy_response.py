@@ -31,14 +31,14 @@ TEST_NODES = np.array([50, 100, 150, 201])
 
 @pytest.fixture(scope='module')
 def mech():
-    from pyoma_uq.models.mechanical import MechanicalDummy
-    return MechanicalDummy.load(str(MECH_NPZ))
+    from pyoma_uq.models.modal_archive import ModalArchive
+    return ModalArchive.load(str(MECH_NPZ))
 
 
 @pytest.fixture(scope='module')
 def small_frf(mech):
     """Acceleration FRF restricted to four output nodes, N = 2**15."""
-    from model import toy_response
+    from pyoma_uq.models import toy_response
     return toy_response.modal_frf(mech, N=2 ** 15, fs=FS,
                                   out_nodes=TEST_NODES)
 
@@ -77,14 +77,14 @@ class TestModalFrf:
             assert abs(f_peak - f_k) <= 2 * df
 
     def test_nyquist_violation_raises(self, mech):
-        from model import toy_response
+        from pyoma_uq.models import toy_response
         with pytest.raises(ValueError):
             # highest mode is 32.7 Hz > 15 Hz Nyquist
             toy_response.modal_frf(mech, N=1024, fs=30.0,
                                    out_nodes=TEST_NODES)
 
     def test_unknown_node_raises(self, mech):
-        from model import toy_response
+        from pyoma_uq.models import toy_response
         with pytest.raises(ValueError):
             toy_response.modal_frf(mech, N=1024, fs=FS,
                                    out_nodes=np.array([50, 999]))
@@ -141,7 +141,7 @@ class TestIdentification:
     # resolvable by OMA and is deliberately not asserted
 
     def test_recovers_known_modes(self, mech):
-        from model import toy_response
+        from pyoma_uq.models import toy_response
         from pyOMA.core.PreProcessingTools import PreProcessSignals
         from pyOMA.core.SSICovRef import BRSSICovRef
 

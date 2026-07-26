@@ -223,15 +223,15 @@ class ToyResponseProvider:
 
     def _get_frf(self):
         if self._frf is None:
-            from pyoma_uq.models.mechanical import MechanicalDummy
-            from model import toy_response
-            mech = MechanicalDummy.load(str(self.mech_npz))
+            from pyoma_uq.models.modal_archive import ModalArchive
+            from pyoma_uq.models import toy_response
+            mech = ModalArchive.load(str(self.mech_npz))
             _, frf = toy_response.modal_frf(mech, N_GEN, FS_M)
             self._frf = frf
         return self._frf
 
     def __call__(self, id_ale, v_b):
-        from model import toy_response
+        from pyoma_uq.models import toy_response
         fpath = self.result_dir / id_ale / 'response.npz'
         if fpath.exists():
             with np.load(fpath) as arr:
@@ -243,7 +243,7 @@ class ToyResponseProvider:
         return t_vals, accel, np.asarray(toy_response.CANDIDATE_NODES)
 
 
-# real structural response provider (FRF from the full ANSYS model)
+# real structural response provider (from a user-supplied FRF archive)
 N_FRF = 2 ** 19      # timesteps of the precomputed structural FRF
                      # (mechanical_frf.dat has N//2+1 = 262145 freq lines);
                      # 2**19/70 = 7489.6 s >= 3600 s max T support
@@ -253,7 +253,7 @@ class FRFResponseProvider:
     '''
     Response provider backed by the *real* structural model: the precomputed
     non-classical compliance FRF (mechanical_frf.dat, ~342 GB, memmapped by
-    MechanicalDummy.load). Per id_ale it synthesizes (and caches) the ambient
+    ModalArchive.load). Per id_ale it synthesizes (and caches) the ambient
     ACCELERATION response at the candidate sensor nodes by streaming the whole
     FRF through transient_ifrf, driven by the original study's windfield
     excitation (UQ_OMA.stage1mapping constants). Drop-in replacement for
@@ -275,8 +275,8 @@ class FRFResponseProvider:
 
     def _get_mech(self):
         if self._mech is None:
-            from pyoma_uq.models.mechanical import MechanicalDummy
-            self._mech = MechanicalDummy.load(str(self.mech_npz))
+            from pyoma_uq.models.modal_archive import ModalArchive
+            self._mech = ModalArchive.load(str(self.mech_npz))
         return self._mech
 
     def _candidate_indices(self, mech):
@@ -284,7 +284,7 @@ class FRFResponseProvider:
         output is reshaped to (N_out, len(meas_nodes), 2) (mechanical.py, the
         order='F' reshape), so the node axis is exactly ``mech.meas_nodes``.'''
         if self._out_node_index is None:
-            from model import toy_response
+            from pyoma_uq.models import toy_response
             meas_nodes = np.asarray(mech.meas_nodes, dtype=int)  # [1..203]
             cand = np.asarray(toy_response.CANDIDATE_NODES, dtype=int)
             idx = np.searchsorted(meas_nodes, cand)
@@ -300,7 +300,12 @@ class FRFResponseProvider:
                 return arr['t_vals'], arr['a_freq_time'], arr['meas_nodes']
         fpath.parent.mkdir(parents=True, exist_ok=True)
 
-        from pyoma_uq.studies.UQ_OMA import windfield
+        raise NotImplementedError(
+            'This code path needed the wind-field generator of the archived '
+            'full study, which was removed with the ANSYS bridge. Supply your '
+            'own response provider instead -- any callable with the signature '
+            '(id_ale, v_b) -> (t_vals, accel[N, n_nodes, 2], nodes); see the '
+            'README section "Model-based path".')
         mech = self._get_mech()
         idx, cand = self._candidate_indices(mech)
         seed = int.from_bytes(bytes(id_ale, 'utf-8'), 'big') % (2 ** 32)

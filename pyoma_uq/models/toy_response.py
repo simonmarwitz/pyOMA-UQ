@@ -6,7 +6,7 @@ The original case study synthesizes ambient responses of the guyed mast on
 an HPC cluster from a 319 GB expanded FRF (``Mechanical.transient_ifrf``).
 That FRF is merely the expansion of the mast's non-classical modal solution,
 which is stored completely in the 2 MB ``mechanical.npz`` archive
-(``MechanicalDummy.load``-able). This module rebuilds a compact
+(``ModalArchive.load``-able). This module rebuilds a compact
 modal-superposition FRF restricted to the candidate sensor locations and
 synthesizes acceleration responses by seeded random-phase excitation,
 following the pattern of ``pyOMA/tests/system_ambient_ifrf.py``. The
@@ -73,7 +73,7 @@ def modal_frf(mech, N, fs, inp_nodes=None, out_nodes=None, out_quant='a'):
 
     Parameters
     ----------
-    mech : MechanicalDummy
+    mech : ModalArchive
         Loaded from ``mechanical.npz``; must provide ``damped_frequencies``,
         ``modal_damping``, ``damped_mode_shapes`` (input expansion),
         ``mode_shapes_comp`` (compensated output shapes, ordered
@@ -96,7 +96,7 @@ def modal_frf(mech, N, fs, inp_nodes=None, out_nodes=None, out_quant='a'):
     frf : ndarray (N // 2 + 1, 2 * len(inp_nodes), 2 * len(out_nodes)), complex64
         Input and output channels are ordered [uy all nodes, uz all nodes],
         matching the Fortran-order reshape used in
-        ``MechanicalDummy.transient_ifrf``.
+        ``ModalArchive.transient_ifrf``.
     '''
     if inp_nodes is None:
         inp_nodes = DEFAULT_INP_NODES

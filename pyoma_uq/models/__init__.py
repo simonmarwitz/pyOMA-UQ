@@ -1,16 +1,17 @@
-'''Structural, wind and acquisition models of the model-based path.
+'''Data sources for the model-based path.
 
-Only :mod:`pyoma_uq.studies.UQ_OMA_weighted` (and the archived
-:mod:`pyoma_uq.studies.UQ_OMA`) use these; the experimental path replaces all
-of them with measured signals.
+There is no FEM solver here. The model-based path consumes a response that the
+user provides -- either a pre-computed modal/FRF archive
+(:mod:`~pyoma_uq.models.modal_archive`) or any callable returning acceleration
+histories -- and the ANSYS bridge that once generated those archives has been
+removed, along with the wind-field generator and the archived full study.
 
-* :mod:`~pyoma_uq.models.mechanical` -- the guyed-mast structural model
-  (with :mod:`~pyoma_uq.models.mechanical_fun`)
-* :mod:`~pyoma_uq.models.turbulent_wind` -- the excitation
+* :mod:`~pyoma_uq.models.modal_archive` -- read a modal/FRF archive and
+  synthesize transients from it (``ModalArchive.transient_ifrf``)
+* :mod:`~pyoma_uq.models.toy_response` -- a compact synthetic response built
+  from a stored modal solution, used by the development fixtures
 * :mod:`~pyoma_uq.models.acquisition` -- the sensing/acquisition chain
   (sensor response, measurement range, sampling, quantisation, DAQ noise)
-* :mod:`~pyoma_uq.models.toy_response` -- a cheap synthetic response used by
-  the development fixtures
 '''
 import logging
 import sys
