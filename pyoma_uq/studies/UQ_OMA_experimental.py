@@ -1106,7 +1106,7 @@ def run_experimental_pipeline(result_dir, weighting='build', N_epi=1000,
                               seed=1509, n_segments=N_SEGMENTS,
                               min_coverage=0.1, quantities=('f', 'd'),
                               n_stat=0, opt_meth='genetic', labels=None,
-                              vars_fun=None):
+                              vars_fun=None, poly_uq=None):
     '''
     The complete experimental study: sampling, weighted identification with
     inline mode assignment, and statistic-level interval optimization.
@@ -1131,6 +1131,17 @@ def run_experimental_pipeline(result_dir, weighting='build', N_epi=1000,
         ``(vars_ale, vars_epi, levels, offsets)``. Lets a variant study -- or a
         deliberately cheap smoke run -- reuse the whole pipeline without
         editing the module.
+    poly_uq : PolyUQ, optional
+        An already-sampled instance to use instead of drawing a fresh one.
+        ``N_epi``/``seed`` are then ignored.
+
+        **This is the only correct way to run on a cluster.** ``sample_qmc``
+        draws a Halton sequence through ``scipy.stats.qmc``, and different
+        scipy versions do not reproduce it, so resampling on a machine whose
+        scipy differs from the one that produced the results silently changes
+        the epistemic samples underneath the surrogate. Sample locally, persist
+        with ``poly_uq.save_state(path, differential='samp')``, ship that file,
+        and restore it here with ``load_state(..., differential='samp')``.
 
     Returns ``(poly_uq, baseline, coverage, results)``.
     '''
@@ -1145,10 +1156,17 @@ def run_experimental_pipeline(result_dir, weighting='build', N_epi=1000,
     vars_ale, vars_epi, levels, offsets = (
         vars_definition_experimental if vars_fun is None else vars_fun)()
 
-    path = 'fast_build' if weighting == 'build' else 'fast_posthoc'
-    poly_uq = PolyUQ(vars_ale, vars_epi, dim_ex='cartesian', path=path)
-    poly_uq.sample_qmc(N_mcs_ale=len(levels), N_mcs_epi=N_epi, seed=seed,
-                       given_samples={'a_ref': levels})
+    if poly_uq is None:
+        path = 'fast_build' if weighting == 'build' else 'fast_posthoc'
+        poly_uq = PolyUQ(vars_ale, vars_epi, dim_ex='cartesian', path=path)
+        poly_uq.sample_qmc(N_mcs_ale=len(levels), N_mcs_epi=N_epi, seed=seed,
+                           given_samples={'a_ref': levels})
+    elif poly_uq.N_mcs_ale != len(levels):
+        raise ValueError(
+            f'the restored instance carries N_mcs_ale={poly_uq.N_mcs_ale} '
+            f'aleatory samples but the measurement yields {len(levels)} blocks; '
+            'the sampling state does not belong to this variable set')
+    N_epi = poly_uq.N_mcs_epi
 
     per_sample, per_hyc = feasibility_report(poly_uq, n_segments=n_segments)
     logger.info('Feasible epistemic samples: %d/%d (%.1f %%); hypercubes '

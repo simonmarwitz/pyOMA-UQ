@@ -352,6 +352,96 @@ class TestStatisticLevel:
 
 # ── end to end, with the real identification ─────────────────────────────────
 
+def _cheap_posthoc_setup():
+    """A variable set with tiny lag counts, so a real identification of a
+    single epistemic sample takes seconds instead of minutes."""
+    baseline = ex.load_baseline_modes()
+    vars_ale, vars_epi, levels, offsets = ex.vars_definition_experimental()
+    by = {v.name: v for v in vars_epi}
+    m_lags = MassFunction('m_lags', [(40, 70), (50, 60)], [0.4, 0.6],
+                          primary=True)
+    model_order = MassFunction('model_order', [(20, 50), (25, 40)],
+                               [0.6, 0.4], primary=True)
+    vars_epi = [by['s_a'], by['scale_a'], by['highpass'], by['lowpass'],
+                by['nyq_rat'], by['tau_max'], m_lags, model_order]
+    pq = PolyUQ(vars_ale, vars_epi, dim_ex='cartesian', path='fast_posthoc')
+    pq.sample_qmc(N_mcs_ale=len(levels), N_mcs_epi=200, seed=1509,
+                  given_samples={'a_ref': levels})
+    per_sample, _ = ex.feasibility_report(pq)
+    ok = per_sample[per_sample.ok].sort_values('num_block_rows')
+    return pq, baseline, offsets, int(ok.iloc[len(ok) // 2]['n_epi'])
+
+
+@needs_data
+@pytest.mark.slow
+@pytest.mark.data
+class TestPosthocWeighting:
+    """The two properties that distinguish post-hoc from build-time weighting.
+
+    Post-hoc reweighting exists to make a weight sweep cheap: ONE unweighted
+    identification per epistemic sample, then only the variances are refreshed
+    from the cached factors. If either property regressed -- a rebuild per
+    hypercube, or a point estimate that moves -- the variant would quietly
+    become an expensive duplicate of the build-time one, and the paper's
+    distinction between them would be wrong.
+    """
+
+    def test_builds_once_and_freezes_the_point_estimate(self, monkeypatch):
+        from pyOMA.core.MultiSetupSSI import VarPreGERSSI
+        pq, baseline, offsets, n_epi = _cheap_posthoc_setup()
+
+        builds = []
+        original = VarPreGERSSI.build_subspace_matrices
+
+        def counting_build(self, *args, **kwargs):
+            builds.append(1)
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(VarPreGERSSI, 'build_subspace_matrices',
+                            counting_build)
+
+        n_blocks = int(offsets[-1])
+        uniform = np.full(n_blocks, 1.0 / n_blocks)
+        tilt = np.linspace(0.5, 1.5, n_blocks)
+        tilted = tilt / tilt.sum()
+
+        estimator = ex.make_experimental_estimator(pq, baseline, offsets,
+                                                   weighting='posthoc')
+        first = estimator(n_epi, 0, uniform)
+        n_after_first = len(builds)
+        second = estimator(n_epi, 1, tilted)
+
+        assert 'rejected' not in first and 'rejected' not in second
+        # one build serves both hypercubes of the same epistemic sample
+        assert len(builds) == n_after_first == 1
+        # the pole set must stay stable, or the row keys would shift under it
+        assert first['keys'] == second['keys']
+        # point estimates frozen, variances refreshed
+        assert np.allclose(first['point'][:, :2], second['point'][:, :2])
+        assert np.any(first['point'][:, 2] != second['point'][:, 2])
+        assert second['n_eff'] < first['n_eff']   # tilting costs n_eff
+
+    def test_build_time_weighting_does_move_the_point_estimate(self):
+        pq, baseline, offsets, n_epi = _cheap_posthoc_setup()
+        n_blocks = int(offsets[-1])
+        tilt = np.linspace(0.5, 1.5, n_blocks)
+        tilted = tilt / tilt.sum()
+
+        posthoc = ex.make_experimental_estimator(pq, baseline, offsets,
+                                                 weighting='posthoc')
+        build = ex.make_experimental_estimator(pq, baseline, offsets,
+                                               weighting='build')
+        reference = posthoc(n_epi, 0, np.full(n_blocks, 1.0 / n_blocks))
+        moved = build(n_epi, 0, tilted)
+
+        common = [key for key in reference['keys'] if key in moved['keys']]
+        assert common, 'the two weightings paired no mode in common'
+        i_ref = [reference['keys'].index(key) for key in common]
+        i_mov = [moved['keys'].index(key) for key in common]
+        assert not np.allclose(reference['point'][i_ref, 0],
+                               moved['point'][i_mov, 0])
+
+
 @needs_data
 @pytest.mark.slow
 @pytest.mark.data
