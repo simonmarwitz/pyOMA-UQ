@@ -1106,7 +1106,8 @@ def run_experimental_pipeline(result_dir, weighting='build', N_epi=1000,
                               seed=1509, n_segments=N_SEGMENTS,
                               min_coverage=0.1, quantities=('f', 'd'),
                               n_stat=0, opt_meth='genetic', labels=None,
-                              vars_fun=None, poly_uq=None):
+                              vars_fun=None, poly_uq=None,
+                              skip_identification=False):
     '''
     The complete experimental study: sampling, weighted identification with
     inline mode assignment, and statistic-level interval optimization.
@@ -1142,6 +1143,12 @@ def run_experimental_pipeline(result_dir, weighting='build', N_epi=1000,
         the epistemic samples underneath the surrogate. Sample locally, persist
         with ``poly_uq.save_state(path, differential='samp')``, ship that file,
         and restore it here with ``load_state(..., differential='samp')``.
+
+    skip_identification : bool
+        Reuse ``poly_uq.stat_db`` instead of running ``estimate_stat``. The
+        cluster driver populates it with a process pool over the epistemic
+        samples (they are independent, and one identification per sample is
+        the whole cost), then calls back in here for the statistic level.
 
     Returns ``(poly_uq, baseline, coverage, results)``.
     '''
@@ -1188,7 +1195,14 @@ def run_experimental_pipeline(result_dir, weighting='build', N_epi=1000,
     # weighted=False would produce plainly unweighted statistics instead.
     # eliminate=False: no Imprecision variable has secondary-Variability focal
     # bounds here, so the elimination is a structural no-op.
-    poly_uq.estimate_stat(estimator, weighted=True, eliminate=False)
+    if skip_identification:
+        if not getattr(poly_uq, 'stat_db', None):
+            raise ValueError('skip_identification=True needs a populated '
+                             'poly_uq.stat_db')
+        logger.info('Reusing %d stat_db entries; skipping identification.',
+                    len(poly_uq.stat_db))
+    else:
+        poly_uq.estimate_stat(estimator, weighted=True, eliminate=False)
     with open(result_dir / 'stat_db.pkl', 'wb') as fh:
         pickle.dump(poly_uq.stat_db, fh)
 

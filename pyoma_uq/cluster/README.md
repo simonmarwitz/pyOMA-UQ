@@ -39,9 +39,28 @@ info file. Job not submitted."; the retry loop rides those windows out, and
 detects success by the exact phrase `is submitted to queue` (the failure line
 also contains the substring `submitted`).
 
-## Threading
+## Threading — measured, not assumed
 
-These jobs deliberately do **not** pin `OMP_NUM_THREADS=1`, unlike the CDF jobs.
-There is no process pool here: the per-sample cost is one SVD/pseudo-inverse
-chain that grows roughly cubically with the number of block rows, and threaded
-BLAS parallelises it directly.
+`OMP_NUM_THREADS=1` plus a process pool over epistemic samples, as in the CDF
+jobs. The first attempt did the opposite (one process, 16 BLAS threads), on the
+theory that the per-sample SVD/pseudo-inverse chain would thread well. It does
+not:
+
+| | s/sample | cores |
+|---|---|---|
+| local, 4 cores, threaded | 540 | 4 |
+| cluster job 2029214, threaded | 310 | 16 |
+
+1.74x for 4x the cores, which put the full run at **72.3 h** — past Batch72's
+72 h wall. Epistemic samples are independent, so distributing whole samples
+scales properly instead.
+
+`_estimate_stat_parallel` reproduces `PolyUQ.estimate_stat`'s contract exactly
+(per-hypercube weights, dedupe of identical weight vectors, `stat_db` entry
+shape); each worker restores the same sampling state and computes its own
+weights, so there is still no weights exit point.
+
+Note that `_worker_init` re-establishes `SCHWABACH_DIR` inside the child rather
+than relying on the parent's assignment: Python 3.14 defaults to
+`forkserver`/`spawn` on Linux, where module-level state set in the parent does
+not reach workers.

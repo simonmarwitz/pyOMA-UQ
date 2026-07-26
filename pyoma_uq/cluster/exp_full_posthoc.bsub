@@ -2,7 +2,7 @@
 #BSUB -q Batch72
 #BSUB -n 16
 #BSUB -R "span[hosts=1]"
-#BSUB -R "rusage[mem=48000]"
+#BSUB -R "rusage[mem=64000]"
 #BSUB -J exp_full_posthoc
 #BSUB -oo /scratch/sima9999/modal_uq/schwabach/exp_full_posthoc_%J.log
 #BSUB -eo /scratch/sima9999/modal_uq/schwabach/exp_full_posthoc_%J.err
@@ -10,13 +10,16 @@
 export PYTHONPATH=$HOME/git_cs2redo/uq_oma_b:$HOME/git_cs2redo/PolyUQ:$HOME/git_cs2redo/pyOMA
 export SCHWABACH_DIR=$HOME/scratch/modal_uq/2019_Schwabach
 export POLYUQ_JOB_ID=$LSB_JOBID
-# NOT pinned to 1: this driver runs no process pool, and the per-sample cost is
-# a threaded-BLAS SVD/pinv chain, so the slots are used inside the linear algebra
-export OMP_NUM_THREADS=16
-export OPENBLAS_NUM_THREADS=16
-export MKL_NUM_THREADS=16
+# Pinned to 1, as in the CDF jobs: the driver distributes whole epistemic
+# samples over a process pool. Threading the BLAS instead gave only 1.74x for
+# 4x the cores (measured, jobs 2029214/2029215), which put the full run at
+# 72.3 h -- past this queue's wall.
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
 $HOME/conda/envs/py311/bin/python $HOME/git_cs2redo/uq_oma_b/pyoma_uq/cluster/run_exp_cluster.py \
   --weighting posthoc \
   --result-dir /scratch/sima9999/modal_uq/schwabach/exp_run \
   --state /scratch/sima9999/modal_uq/schwabach/samp_state_exp_full.npz \
-  --schwabach $HOME/scratch/modal_uq/2019_Schwabach
+  --schwabach $HOME/scratch/modal_uq/2019_Schwabach \
+  --workers 16
