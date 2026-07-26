@@ -6,9 +6,12 @@
 # in the failure line "Job not submitted."
 #
 # Usage: submit_exp.sh smoke|full [build posthoc]
-set -u
+# NOTE: no `set -u` here. /etc/profile references unset variables, so with
+# nounset the source below aborts the whole script before it prints anything
+# (exit 1, no output). submit_cdfd.sh omits it for the same reason.
 source /etc/profile >/dev/null 2>&1     # sets LSF_ENVDIR and puts bsub on PATH
                                         # ('module load lsf' is not reliable)
+command -v bsub >/dev/null || { echo "bsub not on PATH after sourcing /etc/profile"; exit 1; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 cd "$HERE" || exit 1
 
